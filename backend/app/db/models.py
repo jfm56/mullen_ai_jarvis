@@ -1,6 +1,8 @@
-"""SQLAlchemy models for Phase 1 security spine.
+"""SQLAlchemy models.
 
-Phase 2+ will add: projects, tasks, reminders, contacts, leads, emails, memories.
+Phase 1: User, AuditLog, Approval (security spine).
+Phase 2: Task, Reminder, CalendarEvent, OAuthAccount (Personal Assistant).
+Phase 3+: memories, projects, contacts, leads, emails.
 """
 
 from __future__ import annotations
@@ -132,3 +134,164 @@ class Approval(Base):
     request_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
 
     decided_by_user: Mapped[User | None] = relationship(back_populates="approvals")
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: Personal Assistant — tasks, reminders, calendar, OAuth accounts.
+# ---------------------------------------------------------------------------
+
+
+class TaskStatus(str, enum.Enum):
+    pending = "pending"
+    in_progress = "in_progress"
+    done = "done"
+    cancelled = "cancelled"
+
+
+class TaskPriority(str, enum.Enum):
+    low = "low"
+    normal = "normal"
+    high = "high"
+    urgent = "urgent"
+
+
+class Task(Base):
+    __tablename__ = "tasks"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    domain: Mapped[str] = mapped_column(String(64), nullable=False, default="personal", index=True)
+
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[TaskStatus] = mapped_column(
+        SAEnum(TaskStatus, name="task_status", native_enum=False),
+        default=TaskStatus.pending,
+        nullable=False,
+        index=True,
+    )
+    priority: Mapped[TaskPriority] = mapped_column(
+        SAEnum(TaskPriority, name="task_priority", native_enum=False),
+        default=TaskPriority.normal,
+        nullable=False,
+    )
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_tasks_user_status", "user_id", "status"),
+        Index("ix_tasks_user_due", "user_id", "due_at"),
+    )
+
+
+class Reminder(Base):
+    __tablename__ = "reminders"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    domain: Mapped[str] = mapped_column(String(64), nullable=False, default="personal")
+    task_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="SET NULL")
+    )
+
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    fire_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    fired: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    fired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancelled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_reminders_due_unfired", "fire_at", "fired", "cancelled"),
+    )
+
+
+class CalendarEvent(Base):
+    """Mirror of an external calendar event (Google Calendar in Phase 2).
+
+    `external_id` + `source` uniquely identify the upstream event so sync
+    is idempotent. Locally-created events have source='local' and no external_id
+    until they round-trip to the upstream calendar.
+    """
+
+    __tablename__ = "calendar_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    domain: Mapped[str] = mapped_column(String(64), nullable=False, default="personal", index=True)
+
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="google")
+    external_id: Mapped[str | None] = mapped_column(String(255))
+    calendar_id: Mapped[str] = mapped_column(String(255), nullable=False, default="primary")
+
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    location: Mapped[str] = mapped_column(String(512), nullable=False, default="")
+    start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    all_day: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    raw: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+
+    __table_args__ = (
+        Index("ix_calendar_events_user_start", "user_id", "start_at"),
+        Index(
+            "ix_calendar_events_source_external",
+            "source",
+            "external_id",
+            unique=True,
+            postgresql_where=Text("external_id IS NOT NULL"),
+        ),
+    )
+
+
+class OAuthAccount(Base):
+    """OAuth token reference for an external service.
+
+    The actual refresh token is stored in the OS keyring (see
+    `app/security/secrets.py`). This row holds metadata: which provider,
+    which account, which scopes were granted, when the access token expires.
+    The keyring key is `oauth_refresh:{provider}:{account_email}`.
+    """
+
+    __tablename__ = "oauth_accounts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    account_email: Mapped[str] = mapped_column(String(255), nullable=False)
+    scopes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    access_token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        Index(
+            "ix_oauth_provider_account",
+            "user_id",
+            "provider",
+            "account_email",
+            unique=True,
+        ),
+    )

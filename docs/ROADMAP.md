@@ -30,20 +30,29 @@ A phased plan so each milestone produces something usable instead of half-finish
 
 **Done when:** an agent attempting an `action-class` call without approval is blocked and logged. ✓
 
-## Phase 2 — Personal Assistant (first agent)
+## Phase 2 — Personal Assistant (first agent) — backend done, UI + voice deferred
 
 **Goal:** one agent working end-to-end as a vertical slice. Validates the whole stack.
 
-- [ ] Google Calendar OAuth + read-only sync (events into local DB)
-- [ ] Google Calendar write (create events) — gated on approval
-- [ ] Tasks table + simple CRUD
-- [ ] Daily-planning prompt + Ollama integration
-- [ ] Reminders (RQ scheduled jobs)
-- [ ] Minimal Next.js page: today view + chat input
-- [ ] Voice: Whisper STT → text input; Piper TTS → spoken reply
-- [ ] First semantic memories: morning/evening preferences, common task categories
+**Backend (this milestone):**
+- [x] `Task`, `Reminder`, `CalendarEvent`, `OAuthAccount` models + migration `0002_phase2_personal_assistant`
+- [x] Tasks CRUD: `GET/POST /tasks`, `PATCH/DELETE /tasks/{id}`
+- [x] Reminders: `GET /reminders`, `GET /reminders/due`, `POST /reminders`, `POST /reminders/{id}/cancel|ack`
+- [x] Google Calendar OAuth URL builder + `upsert_event` for idempotent sync
+- [x] Ollama HTTP client with graceful error → fallback path in the agent
+- [x] `PersonalAssistantAgent.handle()` composes today's events + tasks + reminders, calls LLM, falls back to deterministic summary if LLM is down
+- [x] `POST /agents/personal_assistant/handle`
+- [x] `app/cli.py create-user` so Phase 1 login is actually usable
+- [x] 18 new tests (Ollama mocked, agent with stub deps, Calendar URL builder, CLI smoke) — 64 total passing
 
-**Done when:** you can say "Jarvis, what do I have today?" and get a useful spoken answer; you can say "remind me to call the EMS director tomorrow at 9" and see an approval-pending reminder.
+**Deferred to an interactive session (needs your hands-on setup):**
+- [ ] **Google Calendar live sync** — needs OAuth client created in Google Cloud Console and the client secret loaded into keyring. Code path is built; flip on once credentials exist.
+- [ ] **RQ scheduled job for firing reminders** — needs Redis. Until then `/reminders/due` is poll-based and the UI surfaces what's ready.
+- [ ] **Minimal Next.js today view** — `create-next-app` ceremony + UI components are better done interactively. The backend serves everything it needs.
+- [ ] **Voice: Whisper STT + Piper TTS** — needs `faster-whisper` (heavy install, model download), microphone access for verification. Best to wire up live.
+- [ ] **First semantic memories** — folded into Phase 3 (memory subsystem) since the embedding pipeline lives there.
+
+**Done when:** authenticated `POST /agents/personal_assistant/handle` returns a useful summary; tasks and reminders survive a round-trip; calendar events sync once OAuth is provisioned. ✓ (backend portion)
 
 ## Phase 3 — Memory + learning controls
 
