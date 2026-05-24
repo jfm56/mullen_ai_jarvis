@@ -27,9 +27,11 @@ def create_app() -> FastAPI:
         debug=settings.env.value == "development",
     )
 
-    from app.api.routes import health
+    from app.api.routes import approvals, auth, health
 
     app.include_router(health.router)
+    app.include_router(auth.router)
+    app.include_router(approvals.router)
     return app
 
 

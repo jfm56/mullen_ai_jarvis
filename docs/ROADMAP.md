@@ -2,7 +2,7 @@
 
 A phased plan so each milestone produces something usable instead of half-finished pieces spread across every agent.
 
-## Phase 0 — Scaffold (current)
+## Phase 0 — Scaffold ✓
 
 **Goal:** repo structure, planning docs, no working features.
 
@@ -11,22 +11,24 @@ A phased plan so each milestone produces something usable instead of half-finish
 - [x] `.env.example`, `.gitignore`
 - [x] Backend Python package skeleton with `BaseAgent` contract
 - [x] Stubs for all 7 agents
-- [ ] Git repo initialized with first commit
+- [x] Git repo initialized + pushed to GitHub
 
-**Done when:** `tree` matches the layout in README, every doc reads coherently.
-
-## Phase 1 — Security spine
+## Phase 1 — Security spine ✓
 
 **Goal:** safety machinery exists before any agent can do anything.
 
-- [ ] `app/security/secrets.py` — `keyring` wrapper with `.env` fallback
-- [ ] `app/security/permissions.py` — permission level enum + risk classifier
-- [ ] `app/security/audit.py` — append-only audit log (Postgres table + helper)
-- [ ] `app/security/auth.py` — single-user auth (password + optional Windows Hello)
-- [ ] Approvals queue table + API endpoints (`GET /approvals`, `POST /approvals/{id}/decision`)
-- [ ] Pytest: permission denial paths, audit row written for every action
+- [x] `app/security/secrets.py` — `keyring` wrapper with `.env` fallback
+- [x] `app/security/permissions.py` — permission level enum + risk classifier (full level × class matrix tested)
+- [x] `app/security/audit.py` — append-only audit log, DB-backed; Postgres trigger blocks UPDATE/DELETE
+- [x] `app/security/auth.py` — Argon2id password hashing + JWT sessions, opportunistic rehash
+- [x] `app/security/approvals.py` — approvals queue service (create_pending / list_pending / decide / mark_outcome)
+- [x] API endpoints: `POST /auth/login`, `GET /auth/me`, `GET /approvals`, `GET /approvals/{id}`, `POST /approvals/{id}/decision`
+- [x] `BaseAgent.propose` creates a pending approval row on `require_approval` instead of just auditing
+- [x] Alembic + migration `0001_initial_security_spine`
+- [x] Pytest: 46 passing — auth round-trip, JWT tampering/expiry, full permission matrix, audit payload hash
+- [x] DB-integration test for full approval lifecycle (marked `requires_db`, runs when `JARVIS_TEST_DB_URL` is set)
 
-**Done when:** an agent attempting an `action-class` call without approval is blocked and logged.
+**Done when:** an agent attempting an `action-class` call without approval is blocked and logged. ✓
 
 ## Phase 2 — Personal Assistant (first agent)
 
