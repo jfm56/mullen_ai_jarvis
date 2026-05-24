@@ -1,0 +1,67 @@
+# Secrets and local config
+.env
+.env.local
+.env.*.local
+*.vault
+secrets.json
+credentials.json
+token.json
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.eggs/
+*.egg-info/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+.pnp.*
+.yarn/
+
+# Logs and runtime
+*.log
+logs/
+runtime/
+audit_logs/
+*.sqlite
+*.sqlite3
+*.db
+
+# Local memory / vector stores (development snapshots)
+data/
+storage/
+vector_store/
+ollama_models/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build artifacts
+*.pyc
+.cache/
