@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from app.agents.base import AgentContext
+from app.agents.email_assistant import EmailAssistantAgent
 from app.agents.personal_assistant import PersonalAssistantAgent
 from app.db.models import User
 from app.security.auth import get_current_user
@@ -38,6 +39,24 @@ async def personal_assistant_handle(
     user: Annotated[User, Depends(get_current_user)],
 ) -> HandleResponse:
     agent = PersonalAssistantAgent()
+    ctx = AgentContext(
+        user_id=user.id,
+        domain=body.domain,
+        permission_level=body.permission_level,
+        request_id=str(uuid.uuid4()),
+        input_text=body.input,
+        metadata={},
+    )
+    result = await agent.handle(ctx)
+    return HandleResponse(text=result.text, metadata=result.metadata)
+
+
+@router.post("/email_assistant/handle", response_model=HandleResponse)
+async def email_assistant_handle(
+    body: HandleRequest,
+    user: Annotated[User, Depends(get_current_user)],
+) -> HandleResponse:
+    agent = EmailAssistantAgent()
     ctx = AgentContext(
         user_id=user.id,
         domain=body.domain,

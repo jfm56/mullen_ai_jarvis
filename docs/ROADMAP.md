@@ -80,16 +80,28 @@ A phased plan so each milestone produces something usable instead of half-finish
 
 **Done when:** memories survive a round-trip with domain isolation provable by code shape; approving or rejecting an action visibly teaches the assistant. ✓ (backend portion)
 
-## Phase 4 — Email Assistant
+## Phase 4 — Email Assistant — backend done, live OAuth + UI deferred
 
 **Goal:** safe inbox triage.
 
-- [ ] Gmail OAuth (read-only first, send scope added later behind approval)
-- [ ] Inbox poller → embed → categorize
-- [ ] Daily inbox summary
-- [ ] Draft replies (never sent without approval)
-- [ ] Scam/phishing classifier (local model + heuristics)
-- [ ] Urgency flagging tuned to your patterns over time
+**Backend (this milestone):**
+- [x] `Email`, `EmailDraft` models + migration `0004_phase4_email` with idempotency index on `(source, external_id)` and check constraints on category/direction
+- [x] `app/agents/email_assistant/scam.py` — rule-based scam/phishing detector (urgency, financial-action, account-threat, credential-request, click-bait, sender-domain lookalike with digit substitution, link-text-vs-href mismatch, off-domain brand mentions). Returns `(score, signals)`; threshold 0.6 → `is_scam=True`. Runs locally, no LLM, no network.
+- [x] `app/agents/email_assistant/categorize.py` — LLM categorizer with constrained one-word output. Deterministic fallback (newsletter / lead-inquiry / internal / fyi heuristics) when LLM is down or returns garbage; first-token extraction handles chatty responses.
+- [x] `app/integrations/gmail.py` — OAuth URL builder (read-only default, send scope requested separately on first send approval), base64url body decoder, multipart parts walker, `upsert_email` idempotent on `(source='gmail', external_id)`.
+- [x] `EmailAssistantAgent.handle()` — inbox summary over last 7 days with category breakdown + waiting-on-you + scam-flagged + oldest-unread; LLM-down fallback path
+- [x] `EmailAssistantAgent.enrich()` — runs scam detector first; if not flagged, runs categorizer. Scam short-circuits categorization.
+- [x] `EmailAssistantAgent.draft_reply()` — generates draft + persists `EmailDraft` row, then ROUTES THROUGH `BaseAgent.propose` with `action.external_send` so a pending Approval is created. The draft text is saved unconditionally; sending requires the user to approve via `/approvals/{id}/decision`. No code path bypasses this.
+- [x] API (8 endpoints): `GET /emails` (filters: category, is_scam, unread_only, domain, days, limit), `GET /emails/summary`, `GET/POST /emails/{id}` plus `/read`, `/archive`, `/categorize`, `/draft`, and `POST /agents/email_assistant/handle`. Static `/summary` declared before `/{id}` to avoid UUID-parse shadowing.
+- [x] 24 new tests (106 total passing): scam detector positive/negative cases including lookalike domains and link mismatch; categorizer with LLM-valid, garbage-text, LLM-down, and fallback paths; Gmail URL builder + base64url body parser + nested multipart walking; agent enrichment short-circuits on scam; LLM-down handle path
+
+**Deferred:**
+- [ ] **Live Gmail OAuth** — needs Google Cloud Console client + secret in keyring. Code path is built; flip on once credentials exist.
+- [ ] **Inbox sync poller** — needs the RQ worker (Phase 1 deferred). Until then `upsert_email` is callable from a script or one-shot endpoint.
+- [ ] **Urgency tuning from user behavior** — Phase 5 task (depends on memory subsystem that's now in place).
+- [ ] **Inbox UI** — Next.js scaffold.
+
+**Done when:** an inbound message gets scam-screened and categorized; the agent can summarize the inbox and produce drafts that physically cannot be sent without explicit approval. ✓ (backend portion; live Gmail sync gated on OAuth provisioning)
 
 ## Phase 5 — Project Manager + Business Development
 

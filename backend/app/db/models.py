@@ -3,7 +3,8 @@
 Phase 1: User, AuditLog, Approval (security spine).
 Phase 2: Task, Reminder, CalendarEvent, OAuthAccount (Personal Assistant).
 Phase 3: Memory, TopicDisable (memory subsystem with domain isolation).
-Phase 4+: projects, contacts, leads, emails.
+Phase 4: Email, EmailDraft (Email Assistant).
+Phase 5+: projects, contacts, leads.
 """
 
 from __future__ import annotations
@@ -388,4 +389,132 @@ class TopicDisable(Base):
 
     __table_args__ = (
         Index("ix_topic_disables_user_domain", "user_id", "domain"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: Email Assistant.
+# ---------------------------------------------------------------------------
+
+
+class EmailCategory(str, enum.Enum):
+    unclassified = "unclassified"
+    urgent = "urgent"
+    waiting_on_me = "waiting_on_me"
+    fyi = "fyi"
+    newsletter = "newsletter"
+    suspicious = "suspicious"
+    lead_inquiry = "lead_inquiry"
+    internal = "internal"  # within Mullen Analytics
+    personal = "personal"
+
+
+class EmailDirection(str, enum.Enum):
+    inbound = "inbound"
+    outbound = "outbound"
+
+
+class Email(Base):
+    """Mirror of one external email message.
+
+    Idempotent on (source='gmail', external_id=raw['id']).
+    Body text is stored locally so the Email Assistant can operate offline
+    after the initial sync.
+    """
+
+    __tablename__ = "emails"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    domain: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="personal", index=True
+    )
+
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="gmail")
+    external_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    thread_id: Mapped[str | None] = mapped_column(String(255), index=True)
+    direction: Mapped[EmailDirection] = mapped_column(
+        SAEnum(EmailDirection, name="email_direction", native_enum=False),
+        default=EmailDirection.inbound,
+        nullable=False,
+    )
+
+    from_addr: Mapped[str] = mapped_column(String(512), nullable=False, default="")
+    to_addrs: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    cc_addrs: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    subject: Mapped[str] = mapped_column(String(1024), nullable=False, default="")
+    snippet: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    body_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    labels: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+
+    # Local enrichment.
+    category: Mapped[EmailCategory] = mapped_column(
+        SAEnum(EmailCategory, name="email_category", native_enum=False),
+        default=EmailCategory.unclassified,
+        nullable=False,
+        index=True,
+    )
+    urgency_score: Mapped[float] = mapped_column(default=0.0, nullable=False)
+    is_scam: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    scam_score: Mapped[float] = mapped_column(default=0.0, nullable=False)
+    scam_signals: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    raw: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+
+    __table_args__ = (
+        Index(
+            "ix_emails_source_external", "source", "external_id", unique=True
+        ),
+        Index("ix_emails_user_received", "user_id", "received_at"),
+        Index("ix_emails_user_category", "user_id", "category"),
+    )
+
+
+class EmailDraft(Base):
+    """A locally-generated reply that has NOT been sent.
+
+    Sending requires a separate Approval row (action_class=action.external_send)
+    settled by the user. `sent_approval_id` is set when the user approves
+    and the executor calls Gmail's send endpoint.
+    """
+
+    __tablename__ = "email_drafts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    email_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("emails.id", ondelete="SET NULL")
+    )
+
+    to_addrs: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    cc_addrs: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    subject: Mapped[str] = mapped_column(String(1024), nullable=False, default="")
+    body_text: Mapped[str] = mapped_column(Text, nullable=False)
+    generated_by: Mapped[str] = mapped_column(String(64), nullable=False, default="email_assistant")
+    model: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+
+    sent_approval_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("approvals.id", ondelete="SET NULL")
+    )
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    discarded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_email_drafts_user_email", "user_id", "email_id"),
     )
