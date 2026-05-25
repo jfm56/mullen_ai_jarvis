@@ -123,15 +123,29 @@ A phased plan so each milestone produces something usable instead of half-finish
 - [ ] **Project ↔ Task linking via FK** — current implementation matches tasks to projects by `#project:{slug}` tag in `task.notes`. Cheap, works, easy to refactor to a real FK later when the UI exists.
 - [ ] **Project + Opportunity UI** — Next.js scaffold.
 
-## Phase 6 — Marketing + Lead Generation
+## Phase 6 — Marketing + Lead Generation — backend done
 
 **Goal:** content drafts and pipeline tracking. Still nothing posts without approval.
 
-- [ ] Social post drafts by vertical (healthcare / EMS / fire / drone / AI consulting)
-- [ ] Content calendar
-- [ ] Lead pipeline (research → contacted → meeting → proposal → close)
-- [ ] Outreach draft + recommended follow-up cadence
-- [ ] Engagement tracking (manual paste-in first; API integrations later)
+**Backend (this milestone):**
+- [x] `SocialPost` model (platform x vertical taxonomy: LinkedIn/Facebook/X/Instagram/blog/other), `Lead` model (research → contacted → meeting → proposal → won/lost/disqualified), `OutreachMessage` model. Migration `0006_phase6_marketing_leads` with check constraints on every status/kind/vertical and a 0..100 range constraint on `lead.score`.
+- [x] `MarketingAgent`:
+  - `handle()` — content-calendar snapshot (drafts/scheduled/published-last-7-days, breakdowns by platform + vertical, upcoming schedule)
+  - `suggest_topics(vertical)` — static seed topics per vertical (EMS/drone/healthcare/fire/AI/school/other); LLM-driven variants land later
+  - **`draft_post(platform, vertical, topic)`** — generates a post under strict voice rules (banned-word list: revolutionize/leverage/synergy/cutting-edge/etc.), platform-specific length targets, vertical-specific voice; persists `SocialPost` row unconditionally, routes the **publish** through `BaseAgent.propose` with `action.external_send`. Verified by test even at admin level.
+- [x] `LeadGenerationAgent`:
+  - `handle()` — pipeline snapshot (by status + vertical, overdue follow-ups, high-score count >=70)
+  - `score_lead(lead)` — heuristic 0-100 ICP score (email/company/role/target-vertical/source-warmth/notes-depth/already-moving). Composable and rerun-cheap.
+  - `recommend_followup(lead)` — stage-based cadence (researched=now, contacted=+5d, meeting=+2d, proposal=+7d; terminal stages return None)
+  - **`draft_outreach(lead, channel)`** — generates 80-150 word outreach with one concrete signal + one ask; persists `OutreachMessage` row unconditionally, routes the **send** through `BaseAgent.propose` with `action.external_send`. Verified by test even at admin level.
+- [x] API (18 endpoints): full CRUD for `/social-posts`, `/leads`; `/social-posts/draft` + `/suggest-topics`; `/leads/{id}/score`, `/recommend-followup`, `/draft-outreach`, `/outreach`; `/agents/{marketing,lead_generation}/handle`. Lead creation auto-scores; lead PATCH re-scores on every edit.
+- [x] 25 new tests (146 total passing): Marketing calendar prompts + topic suggestions + draft gating + LLM-down fallback; Lead scoring (empty/ideal/AI-consulting/inbound-vs-manual/school-not-target), follow-up cadence (terminal/researched/contacted/meeting/proposal), pipeline prompts, outreach prompt context, outreach send gated even at admin
+
+**Deferred:**
+- [ ] **Live posting integrations** — LinkedIn/Facebook/X API wiring + send. Requires per-platform OAuth + API tier decisions.
+- [ ] **Engagement APIs** — current `engagement` JSON column is paste-in. Auto-poll is platform-by-platform work.
+- [ ] **LLM-driven topic suggestions** — current implementation is seed-based; LLM variant lands when there's prior post history to learn from.
+- [ ] **UI** — Next.js scaffold.
 
 ## Phase 7 — Computer Control Agent
 

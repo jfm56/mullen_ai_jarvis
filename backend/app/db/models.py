@@ -5,7 +5,8 @@ Phase 2: Task, Reminder, CalendarEvent, OAuthAccount (Personal Assistant).
 Phase 3: Memory, TopicDisable (memory subsystem with domain isolation).
 Phase 4: Email, EmailDraft (Email Assistant).
 Phase 5: Project, ProjectNote, Opportunity, Proposal (Project Mgr + BD).
-Phase 6+: contacts, leads.
+Phase 6: SocialPost, Lead, OutreachMessage (Marketing + Lead Gen).
+Phase 7+: ComputerActionLog.
 """
 
 from __future__ import annotations
@@ -754,4 +755,222 @@ class Proposal(Base):
 
     __table_args__ = (
         Index("ix_proposals_user_status", "user_id", "status"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 6: Marketing + Lead Generation.
+# ---------------------------------------------------------------------------
+
+
+class SocialPlatform(str, enum.Enum):
+    linkedin = "linkedin"
+    facebook = "facebook"
+    x = "x"
+    instagram = "instagram"
+    blog = "blog"
+    other = "other"
+
+
+class SocialPostStatus(str, enum.Enum):
+    draft = "draft"
+    scheduled = "scheduled"
+    published = "published"
+    discarded = "discarded"
+
+
+class SocialPost(Base):
+    """A piece of social/marketing content.
+
+    Posting externally requires `post_approval_id` to be settled (approved).
+    Engagement metrics are paste-in initially; APIs come later per ROADMAP.
+    """
+
+    __tablename__ = "social_posts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+
+    platform: Mapped[SocialPlatform] = mapped_column(
+        SAEnum(SocialPlatform, name="social_platform", native_enum=False),
+        default=SocialPlatform.linkedin,
+        nullable=False,
+        index=True,
+    )
+    vertical: Mapped[Vertical] = mapped_column(
+        SAEnum(Vertical, name="social_vertical", native_enum=False),
+        default=Vertical.other,
+        nullable=False,
+        index=True,
+    )
+    title: Mapped[str] = mapped_column(String(512), nullable=False, default="")
+    body_text: Mapped[str] = mapped_column(Text, nullable=False)
+    tags: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    status: Mapped[SocialPostStatus] = mapped_column(
+        SAEnum(SocialPostStatus, name="social_post_status", native_enum=False),
+        default=SocialPostStatus.draft,
+        nullable=False,
+        index=True,
+    )
+
+    scheduled_for: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    post_approval_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("approvals.id", ondelete="SET NULL")
+    )
+
+    engagement: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+
+    generated_by: Mapped[str] = mapped_column(String(64), nullable=False, default="marketing")
+    model: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_social_posts_user_status", "user_id", "status"),
+        Index("ix_social_posts_user_scheduled", "user_id", "scheduled_for"),
+    )
+
+
+class LeadSource(str, enum.Enum):
+    manual = "manual"
+    inbound_email = "inbound_email"
+    referral = "referral"
+    event = "event"
+    research = "research"
+    other = "other"
+
+
+class LeadStatus(str, enum.Enum):
+    researched = "researched"
+    contacted = "contacted"
+    meeting = "meeting"
+    proposal = "proposal"
+    won = "won"
+    lost = "lost"
+    disqualified = "disqualified"
+
+
+class Lead(Base):
+    __tablename__ = "leads"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+
+    name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    company: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    role: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    email: Mapped[str] = mapped_column(String(512), nullable=False, default="")
+    phone: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+
+    vertical: Mapped[Vertical] = mapped_column(
+        SAEnum(Vertical, name="lead_vertical", native_enum=False),
+        default=Vertical.other,
+        nullable=False,
+        index=True,
+    )
+    source: Mapped[LeadSource] = mapped_column(
+        SAEnum(LeadSource, name="lead_source", native_enum=False),
+        default=LeadSource.manual,
+        nullable=False,
+    )
+    status: Mapped[LeadStatus] = mapped_column(
+        SAEnum(LeadStatus, name="lead_status", native_enum=False),
+        default=LeadStatus.researched,
+        nullable=False,
+        index=True,
+    )
+
+    # Score 0..100 — higher = better fit for ICP.
+    score: Mapped[int] = mapped_column(default=0, nullable=False)
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+    source_email_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("emails.id", ondelete="SET NULL")
+    )
+
+    last_contacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_followup_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_leads_user_status", "user_id", "status"),
+        Index("ix_leads_user_followup", "user_id", "next_followup_at"),
+    )
+
+
+class OutreachChannel(str, enum.Enum):
+    email = "email"
+    linkedin = "linkedin"
+    phone = "phone"
+    sms = "sms"
+    other = "other"
+
+
+class OutreachStatus(str, enum.Enum):
+    draft = "draft"
+    sent = "sent"
+    replied = "replied"
+    discarded = "discarded"
+
+
+class OutreachMessage(Base):
+    """A drafted outbound message to a lead.
+
+    Sending requires `sent_approval_id` to be approved.
+    """
+
+    __tablename__ = "outreach_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    lead_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("leads.id", ondelete="CASCADE"), nullable=False
+    )
+
+    channel: Mapped[OutreachChannel] = mapped_column(
+        SAEnum(OutreachChannel, name="outreach_channel", native_enum=False),
+        default=OutreachChannel.email,
+        nullable=False,
+    )
+    subject: Mapped[str] = mapped_column(String(1024), nullable=False, default="")
+    body_text: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[OutreachStatus] = mapped_column(
+        SAEnum(OutreachStatus, name="outreach_status", native_enum=False),
+        default=OutreachStatus.draft,
+        nullable=False,
+        index=True,
+    )
+
+    sent_approval_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("approvals.id", ondelete="SET NULL")
+    )
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    generated_by: Mapped[str] = mapped_column(String(64), nullable=False, default="lead_generation")
+    model: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_outreach_lead_created", "lead_id", "created_at"),
     )
