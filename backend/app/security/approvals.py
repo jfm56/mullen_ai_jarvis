@@ -163,7 +163,14 @@ async def decide(
         )
         await session.commit()
         await session.refresh(approval)
-        return approval
+
+    # Fire the learning hook OUTSIDE the transaction so an embedding hiccup
+    # cannot roll back the user's settled decision.
+    # Lazy import to avoid an app.memory ↔ app.security cycle at module load.
+    from app.memory import learning as _learning  # noqa: PLC0415
+
+    await _learning.write_from_approval(approval)
+    return approval
 
 
 async def mark_outcome(

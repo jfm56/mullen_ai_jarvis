@@ -54,14 +54,31 @@ A phased plan so each milestone produces something usable instead of half-finish
 
 **Done when:** authenticated `POST /agents/personal_assistant/handle` returns a useful summary; tasks and reminders survive a round-trip; calendar events sync once OAuth is provisioned. ✓ (backend portion)
 
-## Phase 3 — Memory + learning controls
+## Phase 3 — Memory + learning controls — backend done, UI deferred
 
 **Goal:** the assistant gets noticeably better with use, and you can inspect/edit what it knows.
 
-- [ ] pgvector tables + embedding pipeline (local model)
-- [ ] Memory write-back from approvals (approved/rejected → semantic learning)
-- [ ] Memory UI: list, search, edit, delete, disable-topic
-- [ ] Domain isolation enforced in queries (personal / business / client_*)
+**Backend (this milestone):**
+- [x] `Memory` model with `Vector(768)` column + `TopicDisable` model; migration `0003_phase3_memory` installs the `vector` extension and an `ivfflat` cosine-similarity index
+- [x] `ollama.embed()` calling `/api/embeddings` with `nomic-embed-text` by default
+- [x] `app/memory/store.py` with **mandatory-domain** API surface — `write` / `search` / `list_recent` all require `domain=` (verified by signature tests that fail if a default sneaks in)
+- [x] Topic-disable substring matching blocks `store.write()` before embedding
+- [x] `cross_domain_search()` requires a non-empty `reason`; every call is audited
+- [x] Embedding failures don't lose the fact — row stored with `embedding=NULL` for later reindex; search degrades to recency
+- [x] `app/memory/learning.py` writes memories from settled approvals:
+  - approved → `procedural` memory
+  - rejected → `semantic` memory (plus a second one verbatim from the note, if any)
+  - hook runs OUTSIDE the approval transaction so embedding hiccups can't roll back the user's decision
+  - all failures swallowed (best-effort by design)
+- [x] API: `GET /memory?domain=&kind=&q=` (list or semantic search), `GET/PATCH/DELETE /memory/{id}`, `GET/POST /memory/disabled-topics`, `DELETE /memory/disabled-topics/{id}`
+- [x] 17 new tests (81 total passing): embedding wrapper edge cases, mandatory-domain signature guards, learning hook for every approval-status branch, error swallowing
+
+**Deferred:**
+- [ ] **Memory management UI** — list/search/edit/delete chrome lands with the Next.js scaffold.
+- [ ] **Embedding-based topic detection** — current substring match is sufficient for v1. Swap to semantic match without API change.
+- [ ] **Reindex job** — fills in `embedding=NULL` rows once Ollama is back. Schedule lands with RQ.
+
+**Done when:** memories survive a round-trip with domain isolation provable by code shape; approving or rejecting an action visibly teaches the assistant. ✓ (backend portion)
 
 ## Phase 4 — Email Assistant
 

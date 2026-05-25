@@ -27,13 +27,22 @@ def create_app() -> FastAPI:
         debug=settings.env.value == "development",
     )
 
-    from app.api.routes import agents, approvals, auth, health, reminders, tasks
+    from app.api.routes import (
+        agents,
+        approvals,
+        auth,
+        health,
+        memory,
+        reminders,
+        tasks,
+    )
 
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(approvals.router)
     app.include_router(tasks.router)
     app.include_router(reminders.router)
+    app.include_router(memory.router)
     app.include_router(agents.router)
     return app
 

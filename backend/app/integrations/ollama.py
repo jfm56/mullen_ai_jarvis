@@ -28,6 +28,12 @@ class GenerateResult:
     raw: dict[str, Any]
 
 
+@dataclass
+class EmbedResult:
+    vector: list[float]
+    model: str
+
+
 async def _call_api(
     url: str, payload: dict[str, Any], *, timeout: float
 ) -> dict[str, Any]:
@@ -73,3 +79,31 @@ async def generate(
         raise OllamaError(f"unexpected ollama response shape: keys={list(data.keys())}")
 
     return GenerateResult(text=data["response"], model=chosen_model, raw=data)
+
+
+async def embed(
+    text: str,
+    *,
+    model: str | None = None,
+    timeout: float = 30.0,
+) -> EmbedResult:
+    """Compute an embedding for `text` via Ollama's /api/embeddings.
+
+    Returns a vector whose dimension matches the chosen model. The
+    application's pgvector column has a fixed dimension (settings.embedding_dim)
+    — callers that mix models must validate the returned length matches.
+    """
+    settings = get_settings()
+    chosen_model = model or settings.ollama_embedding_model
+    payload = {"model": chosen_model, "prompt": text}
+    url = settings.ollama_host.rstrip("/") + "/api/embeddings"
+
+    try:
+        data = await _call_api(url, payload, timeout=timeout)
+    except httpx.HTTPError as exc:
+        raise OllamaError(f"ollama embed failed: {exc}") from exc
+
+    vector = data.get("embedding")
+    if not isinstance(vector, list) or not vector:
+        raise OllamaError(f"unexpected embeddings shape: keys={list(data.keys())}")
+    return EmbedResult(vector=vector, model=chosen_model)

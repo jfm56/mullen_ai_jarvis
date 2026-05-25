@@ -44,6 +44,10 @@ class Settings(BaseSettings):
 
     ollama_host: str = Field(default="http://127.0.0.1:11434", alias="OLLAMA_HOST")
     ollama_default_model: str = Field(default="llama3.1:8b", alias="OLLAMA_DEFAULT_MODEL")
+    ollama_embedding_model: str = Field(
+        default="nomic-embed-text", alias="OLLAMA_EMBEDDING_MODEL"
+    )
+    embedding_dim: int = Field(default=768, alias="EMBEDDING_DIM")
 
     whisper_model: str = Field(default="base.en", alias="WHISPER_MODEL")
     tts_voice: str = Field(default="default", alias="TTS_VOICE")

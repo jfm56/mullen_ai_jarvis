@@ -2,7 +2,8 @@
 
 Phase 1: User, AuditLog, Approval (security spine).
 Phase 2: Task, Reminder, CalendarEvent, OAuthAccount (Personal Assistant).
-Phase 3+: memories, projects, contacts, leads, emails.
+Phase 3: Memory, TopicDisable (memory subsystem with domain isolation).
+Phase 4+: projects, contacts, leads, emails.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -24,6 +26,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.config import get_settings
 from app.db.base import Base
 
 
@@ -294,4 +297,95 @@ class OAuthAccount(Base):
             "account_email",
             unique=True,
         ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: Memory subsystem.
+# ---------------------------------------------------------------------------
+
+
+class MemoryKind(str, enum.Enum):
+    short_term = "short_term"   # conversation buffer, expires
+    episodic = "episodic"       # raw interaction record
+    semantic = "semantic"       # distilled fact / preference
+    procedural = "procedural"   # approved workflow we can re-run
+
+
+_EMBEDDING_DIM = get_settings().embedding_dim
+
+
+class Memory(Base):
+    """A domain-tagged memory with an optional embedding for similarity search.
+
+    Domain isolation is enforced at the query layer in `app/memory/store.py`.
+    Every search() call requires an explicit domain. Cross-domain reads
+    require `cross_domain_search()` which audits each invocation.
+    """
+
+    __tablename__ = "memories"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    domain: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    kind: Mapped[MemoryKind] = mapped_column(
+        SAEnum(MemoryKind, name="memory_kind", native_enum=False),
+        nullable=False,
+        index=True,
+    )
+
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(_EMBEDDING_DIM))
+    metadata_json: Mapped[dict] = mapped_column(
+        "metadata", JSON, default=dict, nullable=False
+    )
+
+    # Provenance: which approval / audit row produced this memory.
+    source_approval_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("approvals.id", ondelete="SET NULL")
+    )
+    source_audit_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("audit_log.id", ondelete="SET NULL")
+    )
+
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        Index("ix_memories_user_domain_kind", "user_id", "domain", "kind"),
+        Index("ix_memories_user_domain_live", "user_id", "domain", "deleted_at"),
+    )
+
+
+class TopicDisable(Base):
+    """Per-user opt-out: never write memories matching `pattern` in `domain`.
+
+    Matching is a case-insensitive substring check against the memory text.
+    A semantic (embedding-based) variant can replace this later without
+    changing the API.
+    """
+
+    __tablename__ = "topic_disables"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    domain: Mapped[str] = mapped_column(String(64), nullable=False)
+    pattern: Mapped[str] = mapped_column(String(255), nullable=False)
+    note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_topic_disables_user_domain", "user_id", "domain"),
     )
