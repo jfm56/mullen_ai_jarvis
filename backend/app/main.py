@@ -34,6 +34,9 @@ def create_app() -> FastAPI:
         emails,
         health,
         memory,
+        opportunities,
+        projects,
+        proposals,
         reminders,
         tasks,
     )
@@ -45,6 +48,9 @@ def create_app() -> FastAPI:
     app.include_router(reminders.router)
     app.include_router(memory.router)
     app.include_router(emails.router)
+    app.include_router(projects.router)
+    app.include_router(opportunities.router)
+    app.include_router(proposals.router)
     app.include_router(agents.router)
     return app
 

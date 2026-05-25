@@ -4,7 +4,8 @@ Phase 1: User, AuditLog, Approval (security spine).
 Phase 2: Task, Reminder, CalendarEvent, OAuthAccount (Personal Assistant).
 Phase 3: Memory, TopicDisable (memory subsystem with domain isolation).
 Phase 4: Email, EmailDraft (Email Assistant).
-Phase 5+: projects, contacts, leads.
+Phase 5: Project, ProjectNote, Opportunity, Proposal (Project Mgr + BD).
+Phase 6+: contacts, leads.
 """
 
 from __future__ import annotations
@@ -517,4 +518,240 @@ class EmailDraft(Base):
 
     __table_args__ = (
         Index("ix_email_drafts_user_email", "user_id", "email_id"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: Project Manager + Business Development.
+# ---------------------------------------------------------------------------
+
+
+class ProjectStatus(str, enum.Enum):
+    proposal = "proposal"   # not yet won; in pursuit
+    active = "active"
+    paused = "paused"
+    won = "won"             # closed, delivered
+    lost = "lost"           # didn't win the work
+    archived = "archived"
+
+
+class Vertical(str, enum.Enum):
+    healthcare = "healthcare"
+    ems = "ems"
+    fire = "fire"
+    drone = "drone"
+    ai_consulting = "ai_consulting"
+    school = "school"
+    other = "other"
+
+
+class Project(Base):
+    __tablename__ = "projects"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    domain: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="business", index=True
+    )
+
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    slug: Mapped[str] = mapped_column(String(255), nullable=False)
+    client: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    vertical: Mapped[Vertical] = mapped_column(
+        SAEnum(Vertical, name="project_vertical", native_enum=False),
+        default=Vertical.other,
+        nullable=False,
+        index=True,
+    )
+    status: Mapped[ProjectStatus] = mapped_column(
+        SAEnum(ProjectStatus, name="project_status", native_enum=False),
+        default=ProjectStatus.active,
+        nullable=False,
+        index=True,
+    )
+    priority: Mapped[int] = mapped_column(default=3, nullable=False)  # 1=top..5=low
+
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    value_estimate: Mapped[float] = mapped_column(default=0.0, nullable=False)
+    start_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    target_end_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    actual_end_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    notes: Mapped[list[ProjectNote]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        Index("ix_projects_user_status", "user_id", "status"),
+        Index("ix_projects_user_slug", "user_id", "slug", unique=True),
+    )
+
+
+class ProjectNoteKind(str, enum.Enum):
+    log = "log"
+    decision = "decision"
+    risk = "risk"
+    blocker = "blocker"
+    win = "win"
+
+
+class ProjectNote(Base):
+    __tablename__ = "project_notes"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[ProjectNoteKind] = mapped_column(
+        SAEnum(ProjectNoteKind, name="project_note_kind", native_enum=False),
+        default=ProjectNoteKind.log,
+        nullable=False,
+    )
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+    project: Mapped[Project] = relationship(back_populates="notes")
+
+    __table_args__ = (
+        Index("ix_project_notes_project_created", "project_id", "created_at"),
+    )
+
+
+class OpportunityKind(str, enum.Enum):
+    grant = "grant"
+    rfp = "rfp"
+    partnership = "partnership"
+    cold_inbound = "cold_inbound"
+    referral = "referral"
+    other = "other"
+
+
+class OpportunityStatus(str, enum.Enum):
+    watching = "watching"
+    researching = "researching"
+    applying = "applying"
+    submitted = "submitted"
+    won = "won"
+    lost = "lost"
+    dropped = "dropped"
+
+
+class Opportunity(Base):
+    __tablename__ = "opportunities"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    domain: Mapped[str] = mapped_column(String(64), nullable=False, default="business")
+
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    agency_or_company: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    kind: Mapped[OpportunityKind] = mapped_column(
+        SAEnum(OpportunityKind, name="opportunity_kind", native_enum=False),
+        default=OpportunityKind.other,
+        nullable=False,
+        index=True,
+    )
+    vertical: Mapped[Vertical] = mapped_column(
+        SAEnum(Vertical, name="opportunity_vertical", native_enum=False),
+        default=Vertical.other,
+        nullable=False,
+        index=True,
+    )
+    status: Mapped[OpportunityStatus] = mapped_column(
+        SAEnum(OpportunityStatus, name="opportunity_status", native_enum=False),
+        default=OpportunityStatus.watching,
+        nullable=False,
+        index=True,
+    )
+
+    url: Mapped[str] = mapped_column(String(1024), nullable=False, default="")
+    deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    value_estimate: Mapped[float] = mapped_column(default=0.0, nullable=False)
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+    source_email_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("emails.id", ondelete="SET NULL")
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_opportunities_user_status", "user_id", "status"),
+        Index("ix_opportunities_user_deadline", "user_id", "deadline"),
+    )
+
+
+class ProposalStatus(str, enum.Enum):
+    draft = "draft"
+    review = "review"
+    submitted = "submitted"
+    won = "won"
+    lost = "lost"
+    discarded = "discarded"
+
+
+class Proposal(Base):
+    """A proposal/RFP-response document.
+
+    Either tied to a Project (a follow-on for an existing client) or to an
+    Opportunity (a pursuit). Submitting the proposal externally requires a
+    separate Approval — same pattern as EmailDraft.send.
+    """
+
+    __tablename__ = "proposals"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="SET NULL")
+    )
+    opportunity_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("opportunities.id", ondelete="SET NULL")
+    )
+
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    body_text: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[ProposalStatus] = mapped_column(
+        SAEnum(ProposalStatus, name="proposal_status", native_enum=False),
+        default=ProposalStatus.draft,
+        nullable=False,
+        index=True,
+    )
+    generated_by: Mapped[str] = mapped_column(String(64), nullable=False, default="business_development")
+    model: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+
+    submit_approval_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("approvals.id", ondelete="SET NULL")
+    )
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_proposals_user_status", "user_id", "status"),
     )

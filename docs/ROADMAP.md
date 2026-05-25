@@ -103,14 +103,25 @@ A phased plan so each milestone produces something usable instead of half-finish
 
 **Done when:** an inbound message gets scam-screened and categorized; the agent can summarize the inbox and produce drafts that physically cannot be sent without explicit approval. ✓ (backend portion; live Gmail sync gated on OAuth provisioning)
 
-## Phase 5 — Project Manager + Business Development
+## Phase 5 — Project Manager + Business Development — backend done
 
 **Goal:** track Mullen Analytics work, grants, RFPs.
 
-- [ ] Projects table + status taxonomy (active / paused / proposal / won / lost)
-- [ ] Grant/RFP watch list (manual seed; later automated discovery)
-- [ ] Weekly status report generator
-- [ ] Proposal drafting from project context + reference docs
+**Backend (this milestone):**
+- [x] `Project` + `ProjectNote` + `Opportunity` + `Proposal` models with vertical taxonomy aligned to actual practice (healthcare / EMS / fire / drone / AI consulting / school / other) + migration `0005_phase5_projects_bd`
+- [x] Project status taxonomy: proposal / active / paused / won / lost / archived
+- [x] Opportunity status: watching / researching / applying / submitted / won / lost / dropped (the "lost/dropped/won" closed states excluded from `open_only` lists by default)
+- [x] `ProjectManagerAgent.handle()` — portfolio summary by status + vertical, project-level open/overdue tasks, blocker + risk surfacing
+- [x] `ProjectManagerAgent.weekly_report()` — per-project status with recent notes (decision / risk / blocker / win / log), cross-portfolio rollup; deterministic fallback so reports still go out offline
+- [x] `BusinessDevelopmentAgent.handle()` — pipeline summary with 7-day + 30-day deadline counts, by-kind/by-status/by-vertical breakdowns
+- [x] `BusinessDevelopmentAgent.draft_proposal()` — generates a proposal (problem / approach / deliverables / timeline / investment / why-us); persists the `Proposal` row unconditionally and ROUTES THE SUBMIT through `BaseAgent.propose` with `action.external_send` — same gating pattern as Email send
+- [x] API (19 endpoints): full CRUD for `/projects`, `/opportunities`, `/proposals`; `/projects/{id}/notes` add+list; `/projects/weekly-report`; `/proposals/draft` (returns proposal + approval id); `/agents/project_manager/handle`; `/agents/business_development/handle`. Static `/projects/weekly-report` and `/proposals/draft` declared before their `/{id}` siblings — same UUID-shadow guard we've used since Phase 3.
+- [x] 15 new tests (121 total passing): portfolio + pipeline prompt builders, fallback determinism, weekly report fallback per-project, **proposal draft routes through approval gate even at `admin` permission level** (the critical safety contract test), draft falls back gracefully when LLM is down
+
+**Deferred:**
+- [ ] **Automated grant/RFP discovery** — current state is manual seed + manual updates. Web scraping/SAM.gov polling lands when there's a clearer pattern of what to watch.
+- [ ] **Project ↔ Task linking via FK** — current implementation matches tasks to projects by `#project:{slug}` tag in `task.notes`. Cheap, works, easy to refactor to a real FK later when the UI exists.
+- [ ] **Project + Opportunity UI** — Next.js scaffold.
 
 ## Phase 6 — Marketing + Lead Generation
 

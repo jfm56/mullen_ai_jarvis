@@ -13,8 +13,10 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from app.agents.base import AgentContext
+from app.agents.business_development import BusinessDevelopmentAgent
 from app.agents.email_assistant import EmailAssistantAgent
 from app.agents.personal_assistant import PersonalAssistantAgent
+from app.agents.project_manager import ProjectManagerAgent
 from app.db.models import User
 from app.security.auth import get_current_user
 from app.security.permissions import PermissionLevel
@@ -57,6 +59,42 @@ async def email_assistant_handle(
     user: Annotated[User, Depends(get_current_user)],
 ) -> HandleResponse:
     agent = EmailAssistantAgent()
+    ctx = AgentContext(
+        user_id=user.id,
+        domain=body.domain,
+        permission_level=body.permission_level,
+        request_id=str(uuid.uuid4()),
+        input_text=body.input,
+        metadata={},
+    )
+    result = await agent.handle(ctx)
+    return HandleResponse(text=result.text, metadata=result.metadata)
+
+
+@router.post("/project_manager/handle", response_model=HandleResponse)
+async def project_manager_handle(
+    body: HandleRequest,
+    user: Annotated[User, Depends(get_current_user)],
+) -> HandleResponse:
+    agent = ProjectManagerAgent()
+    ctx = AgentContext(
+        user_id=user.id,
+        domain=body.domain,
+        permission_level=body.permission_level,
+        request_id=str(uuid.uuid4()),
+        input_text=body.input,
+        metadata={},
+    )
+    result = await agent.handle(ctx)
+    return HandleResponse(text=result.text, metadata=result.metadata)
+
+
+@router.post("/business_development/handle", response_model=HandleResponse)
+async def business_development_handle(
+    body: HandleRequest,
+    user: Annotated[User, Depends(get_current_user)],
+) -> HandleResponse:
+    agent = BusinessDevelopmentAgent()
     ctx = AgentContext(
         user_id=user.id,
         domain=body.domain,
