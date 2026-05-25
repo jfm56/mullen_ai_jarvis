@@ -6,7 +6,7 @@ Phase 3: Memory, TopicDisable (memory subsystem with domain isolation).
 Phase 4: Email, EmailDraft (Email Assistant).
 Phase 5: Project, ProjectNote, Opportunity, Proposal (Project Mgr + BD).
 Phase 6: SocialPost, Lead, OutreachMessage (Marketing + Lead Gen).
-Phase 7+: ComputerActionLog.
+Phase 7: AllowedApp, AllowedScript, ComputerActionLog (Computer Control).
 """
 
 from __future__ import annotations
@@ -973,4 +973,141 @@ class OutreachMessage(Base):
 
     __table_args__ = (
         Index("ix_outreach_lead_created", "lead_id", "created_at"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 7: Computer Control (gated). See docs/SECURITY.md.
+# ---------------------------------------------------------------------------
+
+
+class ComputerActionType(str, enum.Enum):
+    launch_app = "launch_app"
+    run_script = "run_script"
+    file_search = "file_search"
+    file_list = "file_list"
+    file_read = "file_read"
+    playwright_open = "playwright_open"
+
+
+class ComputerActionStatus(str, enum.Enum):
+    pending_approval = "pending_approval"
+    executed = "executed"
+    failed = "failed"
+    blocked = "blocked"
+
+
+class AllowedApp(Base):
+    """An application the Computer Control agent is permitted to launch.
+
+    The CRUD endpoints for this table are admin-only and the agent never
+    auto-adds rows. New apps are added by a human with typed confirmation.
+    """
+
+    __tablename__ = "allowed_apps"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    args_template: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # If hash_required is True, the executable's sha256 must match expected_hash
+    # at every launch. Useful for scripts/wrappers; usually skipped for stock OS apps.
+    hash_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    expected_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_allowed_apps_user_name", "user_id", "name", unique=True),
+    )
+
+
+class AllowedScript(Base):
+    """A script the Computer Control agent is permitted to run.
+
+    Hash is REQUIRED and re-verified immediately before each execution.
+    If the file on disk has changed since the row was created, the run is blocked
+    with a `blocked` action log row.
+    """
+
+    __tablename__ = "allowed_scripts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    interpreter: Mapped[str] = mapped_column(String(255), nullable=False, default="")  # e.g., "python", "powershell"
+    args_template: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    sha256_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_allowed_scripts_user_name", "user_id", "name", unique=True),
+    )
+
+
+class ComputerActionLog(Base):
+    """Record of every computer-control action attempted.
+
+    Separate from `audit_log` because we want per-action stdout/return-code
+    visibility for debugging, while keeping the security audit log minimal.
+    """
+
+    __tablename__ = "computer_action_log"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+
+    action_type: Mapped[ComputerActionType] = mapped_column(
+        SAEnum(ComputerActionType, name="computer_action_type", native_enum=False),
+        nullable=False,
+        index=True,
+    )
+    target: Mapped[str] = mapped_column(Text, nullable=False)
+    args: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[ComputerActionStatus] = mapped_column(
+        SAEnum(ComputerActionStatus, name="computer_action_status", native_enum=False),
+        default=ComputerActionStatus.pending_approval,
+        nullable=False,
+        index=True,
+    )
+
+    return_code: Mapped[int | None] = mapped_column()
+    stdout_excerpt: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    stderr_excerpt: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    blocked_reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+    approval_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("approvals.id", ondelete="SET NULL")
+    )
+
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False, index=True
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        Index("ix_computer_action_log_user_started", "user_id", "started_at"),
     )

@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from app.agents.base import AgentContext
 from app.agents.business_development import BusinessDevelopmentAgent
+from app.agents.computer_control import ComputerControlAgent
 from app.agents.email_assistant import EmailAssistantAgent
 from app.agents.lead_generation import LeadGenerationAgent
 from app.agents.marketing import MarketingAgent
@@ -133,6 +134,24 @@ async def lead_generation_handle(
     user: Annotated[User, Depends(get_current_user)],
 ) -> HandleResponse:
     agent = LeadGenerationAgent()
+    ctx = AgentContext(
+        user_id=user.id,
+        domain=body.domain,
+        permission_level=body.permission_level,
+        request_id=str(uuid.uuid4()),
+        input_text=body.input,
+        metadata={},
+    )
+    result = await agent.handle(ctx)
+    return HandleResponse(text=result.text, metadata=result.metadata)
+
+
+@router.post("/computer_control/handle", response_model=HandleResponse)
+async def computer_control_handle(
+    body: HandleRequest,
+    user: Annotated[User, Depends(get_current_user)],
+) -> HandleResponse:
+    agent = ComputerControlAgent()
     ctx = AgentContext(
         user_id=user.id,
         domain=body.domain,

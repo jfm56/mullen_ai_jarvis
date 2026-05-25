@@ -31,6 +31,7 @@ def create_app() -> FastAPI:
         agents,
         approvals,
         auth,
+        computer,
         emails,
         health,
         leads,
@@ -55,6 +56,7 @@ def create_app() -> FastAPI:
     app.include_router(proposals.router)
     app.include_router(social.router)
     app.include_router(leads.router)
+    app.include_router(computer.router)
     app.include_router(agents.router)
     return app
 

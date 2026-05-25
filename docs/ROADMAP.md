@@ -147,15 +147,38 @@ A phased plan so each milestone produces something usable instead of half-finish
 - [ ] **LLM-driven topic suggestions** — current implementation is seed-based; LLM variant lands when there's prior post history to learn from.
 - [ ] **UI** — Next.js scaffold.
 
-## Phase 7 — Computer Control Agent
+## Phase 7 — Computer Control Agent — backend done
 
 **Goal:** safe local automation. This phase is gated — only start after Phases 1 + 2 are solid.
 
-- [ ] Allow-listed app launcher
-- [ ] File search + organize (read-only by default)
-- [ ] Approved script runner (signed allow-list)
-- [ ] Playwright browser sessions for tedious web tasks
-- [ ] Destructive operations require typed confirmation, not just a click
+**Backend (this milestone):**
+- [x] `AllowedApp` + `AllowedScript` + `ComputerActionLog` models + migration `0007_phase7_computer_control`. Scripts ALWAYS require sha256; apps require it only when `hash_required=True`.
+- [x] Safety primitives (`app/integrations/computer/`):
+  - `safe_path.py` — allow-listed roots (default: `F:\Projects`, `~/Documents`, `~/Downloads`; extendable via `JARVIS_ALLOWED_ROOTS`); `resolve_safe()` follows symlinks before containment check; rejects null bytes, `..` traversal, and absolute paths outside allowed roots.
+  - `file_hash.py` — streaming sha256, constant-time-ish hex compare, `verify_hash` raises `HashMismatchError` on tampering.
+  - `subprocess_safe.py` — **`shell=True` isn't even a parameter** (no string can request it); args validator blocks `|&;`$<>` shell metacharacters, null bytes, and `..` traversal; mandatory timeout; truncated stdout/stderr capture.
+  - `file_ops.py` — read-only `search/list_dir/read_text` inside allowed roots; 256 KiB read cap; max 200 results.
+  - `app_launcher.py` — launches strictly from an `AllowedApp` row; re-resolves path through `resolve_safe` at each launch; re-verifies hash if required.
+  - `script_runner.py` — always re-verifies sha256 immediately before exec; resolves `interpreter` via `shutil.which`.
+- [x] `ComputerControlAgent`:
+  - `handle()` is **purely informational** — lists allow-listed apps/scripts/roots and recent actions. It cannot conjure execution from a free-form prompt.
+  - Read-only `search_files / list_dir / read_text` allowed at `read_only`+, audited.
+  - `request_launch_app` and `request_run_script` route through `BaseAgent.propose` with `action.action_system` — which **requires approval at every level including admin**.
+  - `request_run_script(destructive=True)` writes a `confirmation_phrase` into the approval payload AND prepends `[destructive — requires typed 'I CONFIRM']` to the target summary so the UI surfaces it.
+  - `execute_run_script` for destructive scripts **refuses to execute** unless the approval's `decision_note` contains the typed `CONFIRMATION_PHRASE` ("I CONFIRM"). Clicking approve alone is not enough.
+  - Every action is logged to both `computer_action_log` (debugging visibility) and `audit_log` (append-only security record).
+- [x] API (15 endpoints):
+  - Admin-only allow-list CRUD: `GET/POST/DELETE /computer/apps`, `GET/POST/DELETE /computer/scripts` (server-side sha256 captured on creation).
+  - Read-only: `POST /computer/search`, `POST /computer/read`, `GET /computer/roots`, `GET /computer/actions`.
+  - Gated request-then-execute pair: `POST /computer/launch-app` and `POST /computer/run-script` queue approvals; `POST /computer/launch-app/{id}/execute` and `POST /computer/run-script/{id}/execute` run after approval, returning **HTTP 412** when destructive confirmation phrase is missing.
+  - `POST /agents/computer_control/handle`.
+- [x] 31 new tests (177 total passing): path traversal blocked; absolute paths outside roots blocked; null bytes blocked; sha256 round-trip + tamper detection + case-insensitive expected; subprocess arg validator rejects every shell metacharacter; **launch routes through approval gate even at admin**; **destructive run blocked without typed confirmation phrase**; **destructive run proceeds when phrase is in the note**; approval for different script rejected; unapproved approval rejected; `handle()` proposes no actions.
+
+**Deferred:**
+- [ ] **Playwright sessions** — module stub exists; actual browser-driven flows land when there's a concrete use case. Will use a dedicated profile, no default-Chrome cookie access.
+- [ ] **UI** — Next.js scaffold.
+
+**Done when:** the agent can launch a notepad / run a registered script with explicit per-action approval, refuses to run destructive scripts without typed confirmation, and cannot be tricked into executing anything outside its allow-list — even by a prompt injection attempting to escalate. ✓ (backend portion)
 
 ## Phase 8 — Polish
 
