@@ -205,13 +205,19 @@ A phased plan so each milestone produces something usable instead of half-finish
 
 **Done when:** the agent can launch a notepad / run a registered script with explicit per-action approval, refuses to run destructive scripts without typed confirmation, and cannot be tricked into executing anything outside its allow-list — even by a prompt injection attempting to escalate. ✓ (backend portion)
 
-## Phase 8 — Polish
+## Phase 8 — Polish — backend done, Tauri deferred
 
-- [ ] Backup + restore (encrypted)
-- [ ] Sensitive-data redaction in logs
-- [ ] Performance: response time targets, local model warmup
-- [ ] Onboarding flow for fresh installs
-- [ ] Optional desktop wrapper (Tauri)
+- [x] **Encrypted backup + restore** — `BackupRecord` model + migration `0009`; `app/integrations/backup.py` pg_dumps through AES-256-GCM with the 256-bit key in OS keyring (`backup_master_key`); on-disk format `MAGIC ‖ nonce(12) ‖ ciphertext ‖ tag(16)`; `restore_backup` decrypts and streams into `pg_restore`. Admin-only API (`POST /backups`, `GET /backups`, `GET /backups/{id}`) + CLI (`python -m app.cli backup create|list|restore`). `restore` requires typing the same `I CONFIRM` phrase used by destructive Computer Control actions.
+- [x] **Sensitive-data redaction in logs** — `app/security/redaction.py` with patterns for OpenAI / Anthropic / AWS / GitHub keys, JWT, bearer tokens, SSN, credit cards, emails (replaced with domain marker, idempotent), US phones, and `password=` / `api_key=` / `token=` params. **Installed via `logging.setLogRecordFactory`** so every record is scrubbed at creation regardless of which logger emitted it (a root-logger filter would only fire for records emitted through root, missing child-logger output). Idempotent install.
+- [x] **Performance instrumentation** — `TimingMiddleware` adds `X-Process-Time` header; logs slow requests (configurable threshold via `JARVIS_SLOW_REQUEST_MS`, default 1000ms) to `jarvis.perf` at WARNING. Ollama `warmup()` runs in the FastAPI lifespan startup so the first user prompt doesn't pay cold-model latency; skippable via `JARVIS_SKIP_OLLAMA_WARMUP=1`.
+- [x] **Onboarding flow** — `python -m app.cli init` walks the user through: DB reachable, backup encryption key in keyring (prompts to generate one and prints it so the user can back it up off-machine), and first admin user creation.
+- [ ] **Tauri desktop wrapper** — deferred; lands with the Next.js frontend.
+
+**Tests added (32 new, 236 total passing, 1 DB-skipped):**
+- 16 redaction tests including the SSA-invalid-SSN guard, AWS-key shape, JWT, GitHub PAT, bearer-header, email-replacement-is-idempotent, **factory-scrubs-child-logger-records** (the regression test for the filter-vs-factory bug)
+- 11 backup tests including AES-GCM round-trip with mocked `pg_dump` and `pg_restore`, tamper detection (flips one byte → `decryption failed`), missing-magic rejection, too-short rejection, URL parser
+- 3 timing middleware tests (header present, slow-request logged over threshold, fast-request not logged)
+- 2 new CLI smoke tests (`init` and `backup` subcommand help layouts)
 
 ## Non-goals (for v1)
 

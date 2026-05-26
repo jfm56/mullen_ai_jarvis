@@ -8,6 +8,7 @@ Phase 5: Project, ProjectNote, Opportunity, Proposal (Project Mgr + BD).
 Phase 6: SocialPost, Lead, OutreachMessage (Marketing + Lead Gen).
 Phase 7: AllowedApp, AllowedScript, ComputerActionLog (Computer Control).
 Phase 5b: OrgProfile, GrantApplication, GrantSection, GrantAttachment (Grant Writer).
+Phase 8: BackupRecord (encrypted backup tracking).
 """
 
 from __future__ import annotations
@@ -1383,4 +1384,64 @@ class GrantAttachment(Base):
 
     __table_args__ = (
         Index("ix_grant_attachments_app_kind", "application_id", "kind"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 8: Backups.
+# ---------------------------------------------------------------------------
+
+
+class BackupKind(str, enum.Enum):
+    full = "full"          # pg_dump of the whole DB
+    schema_only = "schema_only"
+    data_only = "data_only"
+
+
+class BackupStatus(str, enum.Enum):
+    in_progress = "in_progress"
+    completed = "completed"
+    failed = "failed"
+    restored_from = "restored_from"  # tagged after a successful restore reads this row
+
+
+class BackupRecord(Base):
+    """Metadata for an encrypted backup. The file itself lives on disk
+    inside an allow-listed root; the key lives in keyring (never in the DB).
+    """
+
+    __tablename__ = "backup_records"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+
+    kind: Mapped[BackupKind] = mapped_column(
+        SAEnum(BackupKind, name="backup_kind", native_enum=False),
+        default=BackupKind.full,
+        nullable=False,
+    )
+    status: Mapped[BackupStatus] = mapped_column(
+        SAEnum(BackupStatus, name="backup_status", native_enum=False),
+        default=BackupStatus.in_progress,
+        nullable=False,
+        index=True,
+    )
+    file_path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    file_size: Mapped[int] = mapped_column(default=0, nullable=False)
+    sha256_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    encryption_alg: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="AES-256-GCM"
+    )
+    key_id: Mapped[str] = mapped_column(String(64), nullable=False, default="backup_master_key")
+    failure_reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        Index("ix_backup_records_user_started", "user_id", "started_at"),
     )

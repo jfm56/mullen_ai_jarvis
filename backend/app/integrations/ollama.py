@@ -81,6 +81,19 @@ async def generate(
     return GenerateResult(text=data["response"], model=chosen_model, raw=data)
 
 
+async def warmup(*, model: str | None = None, timeout: float = 30.0) -> bool:
+    """Send a trivial generate call so the model is paged in.
+
+    Returns True on success, False if Ollama is unreachable. Never raises —
+    the API server must come up regardless of whether the LLM is hot.
+    """
+    try:
+        await generate("ok", model=model, options={"num_predict": 1}, timeout=timeout)
+        return True
+    except OllamaError:
+        return False
+
+
 async def embed(
     text: str,
     *,
