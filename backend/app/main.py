@@ -5,16 +5,25 @@ Run: uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+import sys
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+# Windows compatibility: psycopg's async driver requires the SelectorEventLoop,
+# but Python's Windows default since 3.8 is ProactorEventLoop. Set the policy
+# at module import time so it runs before uvicorn (or any test client) spins
+# up its loop. Must happen before the first asyncio call in the process.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-from app.api.middleware.timing import TimingMiddleware
-from app.config import get_settings
-from app.security import redaction
+from fastapi import FastAPI  # noqa: E402  (must come after the policy set)
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+
+from app.api.middleware.timing import TimingMiddleware  # noqa: E402
+from app.config import get_settings  # noqa: E402
+from app.security import redaction  # noqa: E402
 
 
 @asynccontextmanager

@@ -30,9 +30,13 @@ import getpass
 import sys
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+# Match app.main: psycopg async needs SelectorEventLoop on Windows.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-from app.db.base import get_sessionmaker
+from sqlalchemy import select  # noqa: E402
+
+from app.db.base import get_sessionmaker  # noqa: E402
 from app.db.models import BackupRecord, BackupStatus, User
 from app.security.auth import hash_password
 

@@ -7,18 +7,23 @@ SQLAlchemy metadata in app.db.base for autogeneration.
 from __future__ import annotations
 
 import asyncio
+import sys
 from logging.config import fileConfig
 
-from alembic import context
-from sqlalchemy import pool
-from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import async_engine_from_config
+# Match app.main: psycopg async needs SelectorEventLoop on Windows.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-from app.config import get_settings
-from app.db.base import Base
+from alembic import context  # noqa: E402
+from sqlalchemy import pool  # noqa: E402
+from sqlalchemy.engine import Connection  # noqa: E402
+from sqlalchemy.ext.asyncio import async_engine_from_config  # noqa: E402
+
+from app.config import get_settings  # noqa: E402
+from app.db.base import Base  # noqa: E402
 
 # Import models so their tables are registered on Base.metadata.
-from app.db import models  # noqa: F401
+from app.db import models  # noqa: F401, E402
 
 config = context.config
 
