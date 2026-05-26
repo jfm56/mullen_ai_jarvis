@@ -40,17 +40,43 @@ See [docs/AGENTS.md](docs/AGENTS.md) for each agent's contract.
 
 Every agent runs under one of five permission levels: **read-only → draft-only → ask-before-action → approved-automation → admin**. Anything externally visible (email, post, message, money, file deletion, system change) requires explicit approval. See [docs/SECURITY.md](docs/SECURITY.md).
 
-## Getting started (when ready to develop)
+## Getting started
 
 ```powershell
-# From F:\Projects\mullen_ai_jarvis
+# === one-time ===
+# 1. Install PostgreSQL 16 + pgvector extension.
+#    In psql: CREATE DATABASE jarvis; CREATE EXTENSION vector;
+# 2. Install Ollama (https://ollama.com) and pull a model:
+#    ollama pull llama3.1:8b
+#    ollama pull nomic-embed-text
+
+cd F:\Projects\mullen_ai_jarvis
+
+# Backend
 cd backend
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -e .
-copy ..\.env.example ..\.env  # then fill in
+copy ..\.env.example ..\.env  # then edit
+alembic upgrade head
+
+# Guided init — checks DB, sets backup key in keyring, creates admin user
+python -m app.cli init
+
+# === every dev session ===
+# Terminal 1: backend
+cd F:\Projects\mullen_ai_jarvis\backend
+.venv\Scripts\Activate.ps1
 uvicorn app.main:app --reload
+
+# Terminal 2: frontend
+cd F:\Projects\mullen_ai_jarvis\frontend
+npm install                  # first time only
+npm run dev                  # open http://localhost:3000
 ```
+
+Sign in with the user you created via `app.cli init`. The UI gives you Today,
+Tasks, Approvals, Projects, Grants, generic Agent chat, and Settings.
 
 ## Repository layout
 
@@ -58,7 +84,16 @@ uvicorn app.main:app --reload
 mullen_ai_jarvis/
 ├── docs/           Planning, architecture, security, agent contracts
 ├── backend/        FastAPI app: agents, memory, security, integrations
-├── frontend/       Next.js UI (placeholder)
+│   ├── app/        Python package (`pip install -e .`)
+│   └── alembic/    Database migrations (9 so far)
+├── frontend/       Next.js 15 App Router UI
+│   └── src/        TypeScript + Tailwind
 ├── scripts/        Bootstrap and operational scripts
-└── tests/          Pytest suite
+└── tests/          Pytest suite (236 tests)
 ```
+
+## Status
+
+All 8 agents implemented end-to-end, 109 API endpoints, 9 migrations,
+236 tests passing. See [docs/ROADMAP.md](docs/ROADMAP.md) for what
+landed in each phase and what's deferred (voice, live OAuth, Redis worker).

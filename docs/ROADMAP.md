@@ -48,7 +48,7 @@ A phased plan so each milestone produces something usable instead of half-finish
 **Deferred to an interactive session (needs your hands-on setup):**
 - [ ] **Google Calendar live sync** — needs OAuth client created in Google Cloud Console and the client secret loaded into keyring. Code path is built; flip on once credentials exist.
 - [ ] **RQ scheduled job for firing reminders** — needs Redis. Until then `/reminders/due` is poll-based and the UI surfaces what's ready.
-- [ ] **Minimal Next.js today view** — `create-next-app` ceremony + UI components are better done interactively. The backend serves everything it needs.
+- [x] **Minimal Next.js today view** — landed alongside the Phase 9 frontend scaffold; ask-the-assistant + open tasks + overdue rollup at `/`.
 - [ ] **Voice: Whisper STT + Piper TTS** — needs `faster-whisper` (heavy install, model download), microphone access for verification. Best to wire up live.
 - [ ] **First semantic memories** — folded into Phase 3 (memory subsystem) since the embedding pipeline lives there.
 
@@ -218,6 +218,33 @@ A phased plan so each milestone produces something usable instead of half-finish
 - 11 backup tests including AES-GCM round-trip with mocked `pg_dump` and `pg_restore`, tamper detection (flips one byte → `decryption failed`), missing-magic rejection, too-short rejection, URL parser
 - 3 timing middleware tests (header present, slow-request logged over threshold, fast-request not logged)
 - 2 new CLI smoke tests (`init` and `backup` subcommand help layouts)
+
+## Phase 9 — Next.js frontend (v1 scaffold)
+
+**Goal:** make the backend usable without curl.
+
+**Done:**
+- [x] Next.js 15 App Router project: `package.json`, `tsconfig`, `next.config.ts`, Tailwind + PostCSS config
+- [x] `src/lib/api.ts` — typed fetch wrapper with localStorage JWT, ApiError, 401 → soft sign-out via window event
+- [x] `src/lib/auth.tsx` — context provider + `useRequireAuth` redirect hook
+- [x] Pages: `/login`, `/` (Today: ask assistant + open tasks + overdue), `/tasks` (CRUD + toggle done), `/approvals` (the critical page), `/projects`, `/grants`, `/agents` (generic agent chat), `/settings`
+- [x] `ApprovalCard` component — surfaces preview, action class, agent; **detects `confirmation_phrase` in the approval payload and disables the Approve button until the typed phrase is in the note** (mirrors the backend's typed-confirmation enforcement)
+- [x] FastAPI `CORSMiddleware` added — localhost:3000 allow-listed by default, configurable via `JARVIS_CORS_ORIGINS`
+- [x] Top-level README updated with the two-process dev workflow
+
+**Deferred to a v2 of the UI:**
+- [ ] Memory controls (list/search/edit + topic disables)
+- [ ] Inbox triage (emails list, scam scores, draft replies)
+- [ ] Lead pipeline (with score + recommended follow-up + draft outreach)
+- [ ] Opportunity + proposal drafting flow
+- [ ] Social content calendar (drafts + scheduling + suggest topics)
+- [ ] Computer Control allow-list + execute UI
+- [ ] Grant section drafting / assembly / finalize flow
+- [ ] Backup management UI
+- [ ] Voice mic + STT/TTS
+- [ ] Tauri desktop wrap
+
+**Done when:** authenticated user can sign in, see today, manage tasks, and settle approvals through the browser. ✓
 
 ## Non-goals (for v1)
 

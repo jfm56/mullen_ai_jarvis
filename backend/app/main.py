@@ -10,6 +10,7 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.middleware.timing import TimingMiddleware
 from app.config import get_settings
@@ -46,6 +47,23 @@ def create_app() -> FastAPI:
 
     slow_ms = int(os.environ.get("JARVIS_SLOW_REQUEST_MS", "1000"))
     app.add_middleware(TimingMiddleware, slow_threshold_ms=slow_ms)
+
+    # CORS for the Next.js dev server. Default to localhost-only to match the
+    # local-first architecture (docs/ARCHITECTURE.md).
+    cors_origins = [
+        o.strip() for o in os.environ.get(
+            "JARVIS_CORS_ORIGINS",
+            "http://localhost:3000,http://127.0.0.1:3000",
+        ).split(",") if o.strip()
+    ]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["X-Process-Time"],
+    )
 
     from app.api.routes import (
         agents,
