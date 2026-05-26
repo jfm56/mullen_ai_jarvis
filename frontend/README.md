@@ -22,7 +22,7 @@ by default — extend via `JARVIS_CORS_ORIGINS` env var on the backend.
 
 | Route | Purpose |
 |---|---|
-| `/` | **Today** — daily plan, open tasks, ask the Personal Assistant |
+| `/` | **Today** — daily plan, open tasks, ask the Personal Assistant (text **or voice** via push-to-talk) |
 | `/tasks` | Tasks CRUD |
 | `/approvals` | **Pending approvals queue** — every gated agent action lands here; destructive actions require typing the confirmation phrase into the note |
 | `/projects` | Active projects across all verticals |
@@ -30,6 +30,21 @@ by default — extend via `JARVIS_CORS_ORIGINS` env var on the backend.
 | `/agents` | Generic chat — pick any of the 8 agents, choose permission level |
 | `/settings` | Account info + pointer to endpoints not yet in the UI |
 | `/login` | Sign-in form |
+
+## Voice
+
+The mic button on `/` records via `MediaRecorder`, uploads to `POST /voice/transcribe`,
+feeds the transcript to the Personal Assistant, and (if TTS is configured)
+speaks the reply via `POST /voice/speak`. Browser support: Chromium/Firefox
+(webm/opus) or Safari 14.1+ (mp4/AAC). HTTPS is required by browsers for
+mic access — use `http://localhost` (which counts as a secure origin) or
+serve the app behind TLS for production.
+
+For voice to work the backend needs `pip install -e .[voice]` (faster-whisper +
+piper-tts) and `JARVIS_PIPER_VOICE_PATH` pointing at a `.onnx` voice model
+([voice list](https://github.com/rhasspy/piper#voices)). When voice isn't
+configured the mic button shows a graceful "unavailable" message rather than
+breaking the page.
 
 ## Config
 

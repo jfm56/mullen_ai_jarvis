@@ -4,6 +4,7 @@ import { type FormEvent, useEffect, useState } from "react";
 
 import { ApiError, api, type Task } from "@/lib/api";
 import { useRequireAuth } from "@/lib/auth";
+import { VoiceButton } from "@/components/voice-button";
 
 interface PaState {
   text: string | null;
@@ -47,12 +48,11 @@ export default function TodayPage() {
     };
   }, [user]);
 
-  async function askPersonalAssistant(e: FormEvent) {
-    e.preventDefault();
-    if (!prompt.trim()) return;
+  async function invoke(promptText: string) {
+    if (!promptText.trim()) return;
     setPa({ text: null, metadata: null, loading: true, error: null });
     try {
-      const result = await api.invokeAgent("personal_assistant", prompt, "personal");
+      const result = await api.invokeAgent("personal_assistant", promptText, "personal");
       setPa({
         text: result.text,
         metadata: result.metadata,
@@ -70,6 +70,16 @@ export default function TodayPage() {
             : "agent call failed",
       });
     }
+  }
+
+  async function askPersonalAssistant(e: FormEvent) {
+    e.preventDefault();
+    await invoke(prompt);
+  }
+
+  function onVoiceTranscript(text: string) {
+    setPrompt(text);
+    void invoke(text);
   }
 
   if (!user) return null;
@@ -104,7 +114,8 @@ export default function TodayPage() {
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
           />
-          <div className="flex justify-end">
+          <div className="flex items-center justify-between gap-2">
+            <VoiceButton onTranscript={onVoiceTranscript} replyText={pa.text} />
             <button
               type="submit"
               className="btn-primary"

@@ -49,7 +49,7 @@ A phased plan so each milestone produces something usable instead of half-finish
 - [ ] **Google Calendar live sync** — needs OAuth client created in Google Cloud Console and the client secret loaded into keyring. Code path is built; flip on once credentials exist.
 - [ ] **RQ scheduled job for firing reminders** — needs Redis. Until then `/reminders/due` is poll-based and the UI surfaces what's ready.
 - [x] **Minimal Next.js today view** — landed alongside the Phase 9 frontend scaffold; ask-the-assistant + open tasks + overdue rollup at `/`.
-- [ ] **Voice: Whisper STT + Piper TTS** — needs `faster-whisper` (heavy install, model download), microphone access for verification. Best to wire up live.
+- [x] **Voice: Whisper STT + Piper TTS** — landed Phase 10. faster-whisper + piper-tts moved to optional `[voice]` extra; `app/voice/{stt,tts}.py` lazy-import them so the rest of the app works without. `POST /voice/transcribe`, `POST /voice/speak`, `GET /voice/status`. Frontend `VoiceButton` on `/` does push-to-talk → transcribe → invoke Personal Assistant → play TTS reply. Graceful "voice unavailable" UX when the extras aren't installed or no voice file is configured.
 - [ ] **First semantic memories** — folded into Phase 3 (memory subsystem) since the embedding pipeline lives there.
 
 **Done when:** authenticated `POST /agents/personal_assistant/handle` returns a useful summary; tasks and reminders survive a round-trip; calendar events sync once OAuth is provisioned. ✓ (backend portion)
@@ -241,10 +241,33 @@ A phased plan so each milestone produces something usable instead of half-finish
 - [ ] Computer Control allow-list + execute UI
 - [ ] Grant section drafting / assembly / finalize flow
 - [ ] Backup management UI
-- [ ] Voice mic + STT/TTS
+- [x] Voice mic + STT/TTS — landed Phase 10
 - [ ] Tauri desktop wrap
 
 **Done when:** authenticated user can sign in, see today, manage tasks, and settle approvals through the browser. ✓
+
+## Phase 10 — Voice (Whisper STT + Piper TTS)
+
+**Goal:** "Jarvis, what do I have today?" — the explicit voice use case from the original spec.
+
+**Backend:**
+- [x] `app/voice/stt.py` — faster-whisper wrapper, lazy import + `VoiceNotInstalledError` when `[voice]` extra isn't installed; CPU `int8` default, configurable via env; runs in `asyncio.to_thread` so the event loop stays responsive
+- [x] `app/voice/tts.py` — Piper wrapper, same lazy-import shape; voice path from `JARVIS_PIPER_VOICE_PATH` or settings; resolves to a WAV blob
+- [x] API: `POST /voice/transcribe` (multipart `audio` upload, 25 MiB cap, returns text + language + duration), `POST /voice/speak` (text → `audio/wav`, 4000-char cap), `GET /voice/status` (capability probe with install-hint notes)
+- [x] `faster-whisper` + `piper-tts` moved to optional `[voice]` extra in `pyproject.toml` — no install hit for users who don't want voice
+- [x] 12 new tests (248 total passing): empty-input guards, `VoiceNotInstalledError` paths, mocked happy-path round-trips (STT yields text from fake segments; TTS produces a real RIFF/WAVE header), API endpoints return 503 when libs missing and 200 with audio/wav when mocked
+
+**Frontend:**
+- [x] `src/lib/voice.ts` — `MediaRecorder` helper that picks the best supported mime (webm/opus → mp4 → ogg), `transcribeBlob`, `speak`, `playAudioBlob` with object-URL cleanup
+- [x] `src/components/voice-button.tsx` — push-to-talk on `/`; calls `/voice/status` on mount to detect availability and shows a graceful "unavailable" message with install hints when the backend lacks voice
+- [x] Today page wires the button: voice transcript → invokes Personal Assistant → reply text is shown AND auto-spoken via TTS
+
+**Deferred:**
+- [ ] **Wake-word** ("Hey Jarvis") — needs a separate always-listening pipeline; out of scope for v1
+- [ ] **Streaming transcription** — current impl is record-then-send; streaming via WebSocket lands when there's a clear latency need
+- [ ] **Conversation context across voice turns** — each voice turn is a fresh agent call; multi-turn voice memory rides on the Phase 3 memory subsystem
+
+**Done when:** with `pip install -e .[voice]` + a Piper voice downloaded and `JARVIS_PIPER_VOICE_PATH` set, you can click the mic on `/`, say "what do I have today?", see the transcript appear, see the Personal Assistant's text reply, and hear it spoken back. ✓
 
 ## Non-goals (for v1)
 

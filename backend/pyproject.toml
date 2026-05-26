@@ -29,7 +29,6 @@ dependencies = [
     "google-auth-oauthlib>=1.2",
     "google-api-python-client>=2.150",
     "ollama>=0.4",
-    "faster-whisper>=1.0",
     "python-multipart>=0.0.17",
 ]
 
@@ -40,6 +39,13 @@ dev = [
     "ruff>=0.7",
     "mypy>=1.13",
     "types-requests",
+]
+voice = [
+    # ~150MB Whisper base.en model download on first use
+    "faster-whisper>=1.0",
+    # Piper voice .onnx files (~70MB each) downloaded separately
+    # from https://github.com/rhasspy/piper#voices
+    "piper-tts>=1.2",
 ]
 cloud = [
     "anthropic>=0.39",

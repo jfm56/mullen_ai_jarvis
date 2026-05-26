@@ -83,6 +83,7 @@ def create_app() -> FastAPI:
         reminders,
         social,
         tasks,
+        voice,
     )
 
     app.include_router(health.router)
@@ -101,6 +102,7 @@ def create_app() -> FastAPI:
     app.include_router(org_profiles.router)
     app.include_router(grants.router)
     app.include_router(backups.router)
+    app.include_router(voice.router)
     app.include_router(agents.router)
     return app
 
