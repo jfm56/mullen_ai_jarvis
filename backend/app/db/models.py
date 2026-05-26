@@ -7,6 +7,7 @@ Phase 4: Email, EmailDraft (Email Assistant).
 Phase 5: Project, ProjectNote, Opportunity, Proposal (Project Mgr + BD).
 Phase 6: SocialPost, Lead, OutreachMessage (Marketing + Lead Gen).
 Phase 7: AllowedApp, AllowedScript, ComputerActionLog (Computer Control).
+Phase 5b: OrgProfile, GrantApplication, GrantSection, GrantAttachment (Grant Writer).
 """
 
 from __future__ import annotations
@@ -1110,4 +1111,276 @@ class ComputerActionLog(Base):
 
     __table_args__ = (
         Index("ix_computer_action_log_user_started", "user_id", "started_at"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 5b: Grant Writer.
+# ---------------------------------------------------------------------------
+
+
+class OrgType(str, enum.Enum):
+    small_business = "small_business"
+    sole_prop = "sole_prop"
+    nonprofit_501c3 = "nonprofit_501c3"
+    state_local_govt = "state_local_govt"
+    tribal_govt = "tribal_govt"
+    academic = "academic"
+    hospital = "hospital"
+    fire_dept = "fire_dept"
+    ems_agency = "ems_agency"
+    other = "other"
+
+
+class OrgProfile(Base):
+    """The applicant organization. Used for eligibility screening + boilerplate."""
+
+    __tablename__ = "org_profiles"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+
+    legal_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    short_name: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    org_type: Mapped[OrgType] = mapped_column(
+        SAEnum(OrgType, name="org_type", native_enum=False),
+        default=OrgType.small_business,
+        nullable=False,
+    )
+
+    ein: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    uei: Mapped[str] = mapped_column(String(32), nullable=False, default="")  # SAM.gov UEI
+    duns: Mapped[str] = mapped_column(String(32), nullable=False, default="")  # legacy
+    naics_codes: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    sam_status: Mapped[str] = mapped_column(String(32), nullable=False, default="")  # active|expired|none
+    sam_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    founded_year: Mapped[int | None] = mapped_column()
+    address: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    contact_email: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    contact_phone: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    website: Mapped[str] = mapped_column(String(512), nullable=False, default="")
+
+    capabilities_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    boilerplate: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    # boilerplate keys (free-form): mission, history, past_performance, key_personnel, ...
+
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_org_profiles_user_legal_name", "user_id", "legal_name", unique=True),
+    )
+
+
+class FunderType(str, enum.Enum):
+    federal_health = "federal_health"           # NIH, SAMHSA, HRSA, AHRQ, CDC
+    federal_public_safety = "federal_public_safety"  # FEMA AFG, DOJ COPS, BJA
+    federal_other = "federal_other"             # DOE, NSF, USDA, etc.
+    state = "state"                             # state EMS / fire / health office
+    local = "local"                             # county/municipal
+    foundation = "foundation"
+    corporate = "corporate"
+    other = "other"
+
+
+class GrantApplicationStatus(str, enum.Enum):
+    intake = "intake"                  # opportunity logged, not yet started
+    eligibility = "eligibility"        # screening in progress / blocked
+    drafting = "drafting"              # sections being written
+    review = "review"                  # internal review before submission
+    ready = "ready"                    # bundle assembled, awaiting approval to submit
+    submitted = "submitted"
+    awarded = "awarded"
+    declined = "declined"
+    withdrawn = "withdrawn"
+
+
+class EligibilityVerdict(str, enum.Enum):
+    pending = "pending"
+    pass_ = "pass"          # 'pass' is a Python keyword; trailing underscore in the member
+    fail = "fail"
+    needs_review = "needs_review"
+    skipped = "skipped"     # user opted to skip the check
+
+
+class GrantApplication(Base):
+    """A grant we're applying for.
+
+    Linked to an existing Opportunity (the BD agent's watch list) when the
+    application originates from one — but a grant can also be created
+    directly from a NOFO URL without an Opportunity row.
+    """
+
+    __tablename__ = "grant_applications"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    org_profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("org_profiles.id", ondelete="SET NULL")
+    )
+    opportunity_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("opportunities.id", ondelete="SET NULL")
+    )
+
+    funder_type: Mapped[FunderType] = mapped_column(
+        SAEnum(FunderType, name="funder_type", native_enum=False),
+        nullable=False,
+        index=True,
+    )
+    funder_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    mechanism_code: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    # e.g., "R01", "AFG-O", "HRSA-25-XXX", "SAMHSA-SM-25-XXX"
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    abstract: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    requested_amount: Mapped[float] = mapped_column(default=0.0, nullable=False)
+    period_months: Mapped[int] = mapped_column(default=0, nullable=False)
+
+    status: Mapped[GrantApplicationStatus] = mapped_column(
+        SAEnum(GrantApplicationStatus, name="grant_application_status", native_enum=False),
+        default=GrantApplicationStatus.intake,
+        nullable=False,
+        index=True,
+    )
+
+    eligibility_verdict: Mapped[EligibilityVerdict] = mapped_column(
+        SAEnum(EligibilityVerdict, name="eligibility_verdict", native_enum=False),
+        default=EligibilityVerdict.pending,
+        nullable=False,
+    )
+    eligibility_notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+    nofo_url: Mapped[str] = mapped_column(String(1024), nullable=False, default="")
+    nofo_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+
+    bundle_path: Mapped[str] = mapped_column(String(1024), nullable=False, default="")
+    # When the agent assembles, this points to the local folder under an
+    # allowed root (verified via app.integrations.computer.safe_path).
+    submission_approval_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("approvals.id", ondelete="SET NULL")
+    )
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    outcome_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    sections: Mapped[list[GrantSection]] = relationship(
+        back_populates="application",
+        cascade="all, delete-orphan",
+        order_by="GrantSection.order_index",
+    )
+    attachments: Mapped[list[GrantAttachment]] = relationship(
+        back_populates="application", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        Index("ix_grant_apps_user_status", "user_id", "status"),
+        Index("ix_grant_apps_user_deadline", "user_id", "deadline"),
+    )
+
+
+class GrantSectionStatus(str, enum.Enum):
+    not_started = "not_started"
+    draft = "draft"
+    review = "review"
+    ready = "ready"
+    skipped = "skipped"
+
+
+class GrantSection(Base):
+    """One section of a grant narrative.
+
+    `kind` is a stable identifier (e.g., 'specific_aims', 'needs_statement',
+    'budget_narrative') that lets agents look up the right prompt template.
+    """
+
+    __tablename__ = "grant_sections"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    application_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("grant_applications.id", ondelete="CASCADE"), nullable=False
+    )
+
+    kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    body_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    order_index: Mapped[int] = mapped_column(default=0, nullable=False)
+
+    status: Mapped[GrantSectionStatus] = mapped_column(
+        SAEnum(GrantSectionStatus, name="grant_section_status", native_enum=False),
+        default=GrantSectionStatus.not_started,
+        nullable=False,
+        index=True,
+    )
+    word_limit: Mapped[int] = mapped_column(default=0, nullable=False)
+    word_count: Mapped[int] = mapped_column(default=0, nullable=False)
+
+    generated_by: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    model: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    application: Mapped[GrantApplication] = relationship(back_populates="sections")
+
+    __table_args__ = (
+        Index("ix_grant_sections_app_kind", "application_id", "kind", unique=True),
+        Index("ix_grant_sections_app_order", "application_id", "order_index"),
+    )
+
+
+class GrantAttachment(Base):
+    """A file that must accompany the application (biosketch, LOI, budget workbook, ...).
+
+    `file_path`, if set, points at a file inside an allow-listed root
+    (verified by app.integrations.computer.safe_path at write time).
+    """
+
+    __tablename__ = "grant_attachments"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    application_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("grant_applications.id", ondelete="CASCADE"), nullable=False
+    )
+
+    kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    # e.g., 'biosketch', 'letter_of_support', 'budget_workbook',
+    # 'indirect_cost_rate_agreement', 'sf424', 'project_abstract_form', ...
+    label: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    required: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    file_path: Mapped[str] = mapped_column(String(1024), nullable=False, default="")
+    present: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    application: Mapped[GrantApplication] = relationship(back_populates="attachments")
+
+    __table_args__ = (
+        Index("ix_grant_attachments_app_kind", "application_id", "kind"),
     )

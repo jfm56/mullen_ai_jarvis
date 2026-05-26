@@ -121,6 +121,29 @@ Every agent must:
 
 ---
 
+## 7b. Grant Writer (added 2026-05-25 on user request)
+
+**Domains:** `business`
+**Default level:** `ask_before_action`
+
+**Owns:**
+- Grant application lifecycle: intake → eligibility screen → drafting → review → ready → submitted → awarded/declined
+- Multi-section narrative documents (per-funder templates: NIH R-series, SAMHSA/HRSA, FEMA AFG, DOJ COPS/BJA, state/local, foundation LOI, generic)
+- Per-section status (not_started / draft / review / ready / skipped)
+- Attachments checklist (biosketches, letters of support, budget workbooks, SF-424, etc.) tracked with required/present flags
+- LLM-based eligibility screening against the NOFO + applicant org profile
+- Bundle assembly to a local folder under an allow-listed root (verified via `safe_path`); produces narrative + per-section files + CHECKLIST.txt with missing items called out
+- Finalize-approval gating before marking a bundle ready-to-submit
+
+**Never:**
+- Auto-submits to Grants.gov, state portals, or foundation forms — submission is a manual step in v1
+- Auto-flips a `fail` eligibility verdict to `pass` (the user must edit the application)
+- Writes the bundle outside the allow-listed roots from Phase 7
+
+**Templates baked in:** `app/agents/grant_writer/templates.py` maps `(funder_type, mechanism_code)` → section + attachment list. Fallback order: exact mechanism match → funder family default → generic.
+
+---
+
 ## 7. Computer Control
 
 **Domains:** any, but level is per-domain

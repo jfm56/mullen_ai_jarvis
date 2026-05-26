@@ -33,10 +33,12 @@ def create_app() -> FastAPI:
         auth,
         computer,
         emails,
+        grants,
         health,
         leads,
         memory,
         opportunities,
+        org_profiles,
         projects,
         proposals,
         reminders,
@@ -57,6 +59,8 @@ def create_app() -> FastAPI:
     app.include_router(social.router)
     app.include_router(leads.router)
     app.include_router(computer.router)
+    app.include_router(org_profiles.router)
+    app.include_router(grants.router)
     app.include_router(agents.router)
     return app
 

@@ -25,13 +25,14 @@ Full details in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 | Agent | Status | Purpose |
 |---|---|---|
-| Personal Assistant | scaffold | Calendar, reminders, tasks, daily planning (**first build target**) |
-| Email Assistant | stub | Gmail summarize/draft, scam detection, never auto-send |
-| Project Manager | stub | Track active business/school/grant/drone/EMS/healthcare/AI projects |
-| Marketing | stub | Social drafts for healthcare, EMS, fire/public safety, drone, AI consulting |
-| Lead Generation | stub | Find/score leads, draft outreach, track pipeline |
-| Business Development | stub | Grants, RFPs, partnerships, proposals |
-| Computer Control | stub | Open apps, files, run approved scripts — gated on permission |
+| Personal Assistant | implemented | Calendar, reminders, tasks, daily planning |
+| Email Assistant | implemented | Gmail summarize/draft, scam detection, never auto-send |
+| Project Manager | implemented | Track active business/school/grant/drone/EMS/healthcare/AI projects |
+| Marketing | implemented | Social drafts for healthcare, EMS, fire/public safety, drone, AI consulting |
+| Lead Generation | implemented | Find/score leads, draft outreach, track pipeline |
+| Business Development | implemented | RFPs, partnerships, proposals |
+| Grant Writer | implemented | Multi-section grant applications (NIH/SAMHSA/HRSA/FEMA AFG/DOJ/state/foundation) with eligibility screening + bundle assembly |
+| Computer Control | implemented | Open apps, files, run approved scripts — gated, hash-verified, typed confirmation for destructive ops |
 
 See [docs/AGENTS.md](docs/AGENTS.md) for each agent's contract.
 

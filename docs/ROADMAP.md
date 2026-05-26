@@ -123,6 +123,31 @@ A phased plan so each milestone produces something usable instead of half-finish
 - [ ] **Project ↔ Task linking via FK** — current implementation matches tasks to projects by `#project:{slug}` tag in `task.notes`. Cheap, works, easy to refactor to a real FK later when the UI exists.
 - [ ] **Project + Opportunity UI** — Next.js scaffold.
 
+## Phase 5b — Grant Writer (added 2026-05-25 on user request) — backend done
+
+**Goal:** apply for grants across federal health, federal public safety, state/local, and foundations.
+
+**Backend (this milestone):**
+- [x] `OrgProfile` (applicant org details: EIN/UEI/SAM status/NAICS/capabilities/boilerplate) + `GrantApplication` (lifecycle: intake → eligibility → drafting → review → ready → submitted → awarded/declined) + `GrantSection` (per-section with status, word_limit, kind) + `GrantAttachment` (required/present flag). Migration `0008_phase5b_grant_writer`.
+- [x] Section + attachment **templates per funder mechanism** (`templates.py`): NIH R-series (R01/R21/R03), SAMHSA/HRSA, FEMA AFG/SAFER, DOJ COPS/BJA, state/local, foundation LOI, generic fallback. Lookup falls back `(funder, mechanism)` → `(funder, default)` → generic.
+- [x] `GrantWriterAgent`:
+  - `handle()` — pipeline summary by status + funder type, 14/60-day deadlines, total requested
+  - `initialize_template(app)` — idempotently creates `GrantSection` + `GrantAttachment` rows from templates
+  - `screen_eligibility(app, org)` — LLM verdict (pass/fail/needs_review) with strict `VERDICT:` parsing; never auto-flips fail to pass; degrades to `needs_review` when LLM down
+  - `draft_section(app, section)` — generates one section using template hint + abstract + NOFO excerpt + already-finalized siblings + org capabilities
+  - `assemble_bundle(ctx, app, output_root)` — writes narrative + per-section files + attachments folder + `CHECKLIST.txt` (with missing-required items called out) into a folder under an allow-listed root (verified via `safe_path`)
+  - `request_finalize(ctx, app)` — routes through `BaseAgent.propose` with `action.external_send`. Verified by test even at admin level.
+- [x] API (23 endpoints): full CRUD on `/org-profiles` and `/grants`, plus `/grants/{id}/initialize`, `/screen-eligibility`, `/sections/{id}/draft`, full attachment CRUD with path-safety validation, `/assemble`, `/finalize`, `/mark-ready` (412 if approval not yet approved). Plus `POST /agents/grant_writer/handle`.
+- [x] 27 new tests (204 total passing): template lookups for every funder family, NIH R-series fallback, attachment required-flag preservation, **VERDICT-line parsing across all formats**, eligibility LLM happy path + LLM-down fallback, section draft uses template hint, **finalize routes through approval gate at admin**, **bundle assembly writes narrative + per-section files + attachments folder + checklist with missing items**, **bundle assembly rejects output_root outside allow-listed roots**
+
+**Deferred:**
+- [ ] **Live Grants.gov / SAM.gov Workspace API integration** — massive scope per the scoping conversation; "bundle + manual submit" is the v1 design.
+- [ ] **Auto-discovery of opportunities from Grants.gov RSS / agency feeds** — manual seed today; the BD agent's `Opportunity` table is the staging ground.
+- [ ] **Budget workbook generator** — current `budget_narrative` is text; a separate XLSX builder lands later.
+- [ ] **NOFO PDF fetcher + parser** — agent currently relies on user pasting NOFO text into the application record.
+
+**Done when:** an authenticated user can create a grant, get an eligibility verdict, draft each section, register attachments, assemble a packet, and queue an approval that flips it to ready-to-submit. ✓ (backend portion)
+
 ## Phase 6 — Marketing + Lead Generation — backend done
 
 **Goal:** content drafts and pipeline tracking. Still nothing posts without approval.
