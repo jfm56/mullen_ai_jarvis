@@ -1,46 +1,234 @@
+@import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700&family=Exo+2:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --hud-bg: #05080F;
+  --hud-bg-panel: #0B1322;
+  --hud-accent: #22D3EE;
+  --hud-accent-dim: #0E7490;
+  --hud-text: #F1F7FB;
+  --hud-text-dim: #7A8FA6;
+  --hud-border: #15243B;
+  --hud-glow: rgba(34, 211, 238, 0.35);
+  --hud-warning: #F5A524;
+
+  --font-display: "Orbitron", "Exo 2", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Exo 2", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
 @layer base {
   html, body {
     height: 100%;
-    background-color: #f4f7f9;
-    color: #1d2e39;
+    background-color: var(--hud-bg);
+    color: var(--hud-text);
   }
-  /* A bit larger default for readability — this is a daily-driver tool. */
   body {
+    font-family: var(--font-body);
     font-size: 15px;
     line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  ::selection {
+    background-color: var(--hud-accent-dim);
+    color: var(--hud-text);
   }
 }
 
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center rounded-md
-      px-3 py-1.5 text-sm font-medium transition
-      focus:outline-none focus:ring-2 focus:ring-brand-500/40;
+    @apply inline-flex items-center justify-center rounded-sm
+      px-3 py-1.5 text-sm font-medium tracking-wide transition-colors
+      focus:outline-none focus:ring-2 focus:ring-offset-0;
+    font-family: var(--font-body);
+    border: 1px solid transparent;
+  }
+  .btn:focus {
+    box-shadow: 0 0 0 2px var(--hud-glow);
   }
   .btn-primary {
-    @apply btn bg-brand-700 text-white hover:bg-brand-900;
+    @apply btn;
+    background-color: var(--hud-accent-dim);
+    color: var(--hud-text);
+    border-color: var(--hud-accent);
+  }
+  .btn-primary:hover {
+    background-color: var(--hud-accent);
+    color: var(--hud-bg);
+    box-shadow: 0 0 14px var(--hud-glow);
   }
   .btn-secondary {
-    @apply btn border border-brand-200 bg-white text-brand-900 hover:bg-brand-50;
+    @apply btn;
+    background-color: transparent;
+    color: var(--hud-text);
+    border-color: var(--hud-border);
+  }
+  .btn-secondary:hover {
+    border-color: var(--hud-accent);
+    color: var(--hud-accent);
   }
   .btn-danger {
-    @apply btn bg-red-700 text-white hover:bg-red-800;
+    @apply btn;
+    background-color: transparent;
+    color: var(--hud-warning);
+    border-color: var(--hud-warning);
+  }
+  .btn-danger:hover {
+    background-color: var(--hud-warning);
+    color: var(--hud-bg);
   }
   .card {
-    @apply rounded-lg border border-brand-100 bg-white p-4 shadow-sm;
+    @apply rounded-sm p-4;
+    background-color: rgba(11, 19, 34, 0.7);
+    border: 1px solid var(--hud-border);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
   }
   .label {
-    @apply text-xs font-semibold uppercase tracking-wide text-brand-500;
+    @apply text-xs font-semibold uppercase tracking-widest;
+    color: var(--hud-text-dim);
+    font-family: var(--font-display);
   }
   .input {
-    @apply w-full rounded-md border border-brand-200 bg-white px-3 py-2 text-sm
-      focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500;
+    @apply w-full rounded-sm px-3 py-2 text-sm
+      focus:outline-none transition-colors;
+    background-color: rgba(5, 8, 15, 0.6);
+    color: var(--hud-text);
+    border: 1px solid var(--hud-border);
+    font-family: var(--font-body);
+  }
+  .input:focus {
+    border-color: var(--hud-accent);
+    box-shadow: 0 0 0 1px var(--hud-glow);
   }
   .pill {
-    @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium;
+    @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium tracking-wide;
+    background-color: rgba(34, 211, 238, 0.1);
+    color: var(--hud-accent);
+    border: 1px solid var(--hud-accent-dim);
+  }
+}
+
+@layer utilities {
+  .hud-panel {
+    background-color: rgba(11, 19, 34, 0.7);
+    border: 1px solid var(--hud-accent-dim);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow:
+      0 0 12px rgba(34, 211, 238, 0.08),
+      inset 0 1px 0 rgba(34, 211, 238, 0.04);
+    border-radius: 2px;
+  }
+  .hud-heading {
+    font-family: var(--font-display);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+  }
+  .font-display {
+    font-family: var(--font-display);
+  }
+  .font-body {
+    font-family: var(--font-body);
+  }
+  .font-mono {
+    font-family: var(--font-mono);
+  }
+}
+
+/* ----- Keyframes — kept subtle, no flashing ----- */
+
+@keyframes hud-pulse {
+  0%, 100% {
+    opacity: 0.85;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.02);
+  }
+}
+
+@keyframes hud-spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes hud-spin-reverse {
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes hud-count-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes hud-glow-breathe {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(34, 211, 238, 0.18);
+    opacity: 0.9;
+  }
+  50% {
+    box-shadow: 0 0 18px rgba(34, 211, 238, 0.45);
+    opacity: 1;
+  }
+}
+
+@keyframes hud-scan-edge {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+@keyframes hud-bar-tick {
+  0%, 100% {
+    transform: scaleY(0.35);
+  }
+  33% {
+    transform: scaleY(0.85);
+  }
+  66% {
+    transform: scaleY(0.55);
+  }
+}
+
+@keyframes hud-fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }

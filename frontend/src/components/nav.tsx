@@ -22,11 +22,16 @@ export function Nav() {
   if (!user) return null;
 
   return (
-    <aside className="flex h-screen w-56 flex-col border-r border-brand-100 bg-white">
-      <div className="border-b border-brand-100 p-4">
-        <div className="text-sm font-semibold text-brand-900">Jarvis</div>
-        <div className="mt-0.5 text-xs text-brand-500">
-          {user.display_name}{user.is_admin ? " · admin" : ""}
+    <aside className="flex h-screen w-56 flex-col border-r border-hud-border bg-hud-panel/80 backdrop-blur-md">
+      <div className="border-b border-hud-border p-4">
+        <div className="hud-heading text-sm font-semibold text-hud-accent">
+          JARVIS
+        </div>
+        <div className="mt-1 text-xs text-hud-text_dim tracking-wide">
+          {user.display_name}
+          {user.is_admin ? (
+            <span className="ml-1 text-hud-accent">· admin</span>
+          ) : null}
         </div>
       </div>
       <nav className="flex-1 overflow-y-auto p-2">
@@ -40,10 +45,10 @@ export function Nav() {
               key={item.href}
               href={item.href}
               className={
-                "block rounded-md px-3 py-2 text-sm " +
+                "block rounded-sm border px-3 py-2 text-sm tracking-wide transition-colors " +
                 (active
-                  ? "bg-brand-50 font-medium text-brand-900"
-                  : "text-brand-700 hover:bg-brand-50")
+                  ? "border-hud-accent_dim bg-hud-accent_dim/20 font-medium text-hud-accent"
+                  : "border-transparent text-hud-text_dim hover:border-hud-border hover:bg-hud-bg/40 hover:text-hud-text")
               }
             >
               {item.label}
@@ -51,11 +56,11 @@ export function Nav() {
           );
         })}
       </nav>
-      <div className="border-t border-brand-100 p-2">
+      <div className="border-t border-hud-border p-2">
         <button
           type="button"
           onClick={logout}
-          className="w-full rounded-md px-3 py-2 text-left text-sm text-brand-700 hover:bg-brand-50"
+          className="w-full rounded-sm border border-transparent px-3 py-2 text-left text-sm text-hud-text_dim transition-colors hover:border-hud-warning/60 hover:text-hud-warning"
         >
           Sign out
         </button>
