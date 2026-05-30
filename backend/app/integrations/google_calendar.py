@@ -173,3 +173,77 @@ async def list_local_events_for_day(
             .order_by(CalendarEvent.start_at)
         )
         return list(result.scalars().all())
+
+
+# --- Sync ------------------------------------------------------------------
+
+
+_CAL_API = "https://www.googleapis.com/calendar/v3"
+
+
+async def sync_events(
+    *,
+    user_id: uuid.UUID,
+    account_email: str,
+    calendar_id: str = "primary",
+    days_back: int = 1,
+    days_forward: int = 30,
+    domain: str = "personal",
+) -> int:
+    """Pull events from `time_min` to `time_max` and upsert each.
+
+    Returns the number of events synced. Uses the stored OAuth refresh
+    token (in keyring) to get a fresh access token.
+    """
+    import httpx
+    from datetime import timedelta
+
+    from app.integrations import google_oauth
+
+    access_token = await google_oauth.access_token_for(account_email)
+
+    now = datetime.now(timezone.utc)
+    time_min = (now - timedelta(days=days_back)).isoformat()
+    time_max = (now + timedelta(days=days_forward)).isoformat()
+
+    synced = 0
+    async with httpx.AsyncClient(
+        timeout=30.0, headers={"Authorization": f"Bearer {access_token}"}
+    ) as client:
+        page_token: str | None = None
+        async with get_sessionmaker()() as session:
+            while True:
+                params = {
+                    "timeMin": time_min,
+                    "timeMax": time_max,
+                    "singleEvents": "true",
+                    "orderBy": "startTime",
+                    "maxResults": 100,
+                }
+                if page_token:
+                    params["pageToken"] = page_token
+                resp = await client.get(
+                    f"{_CAL_API}/calendars/{calendar_id}/events", params=params
+                )
+                if resp.status_code >= 400:
+                    raise GoogleCalendarError(
+                        f"events.list failed: {resp.status_code} {resp.text[:200]}"
+                    )
+                payload = resp.json()
+                for raw in payload.get("items") or []:
+                    if raw.get("status") == "cancelled":
+                        continue
+                    try:
+                        await upsert_event(
+                            session, user_id=user_id, raw=raw,
+                            calendar_id=calendar_id, domain=domain,
+                        )
+                        synced += 1
+                    except GoogleCalendarError:
+                        # Skip malformed events (no start time, etc.) — don't kill the sync.
+                        continue
+                page_token = payload.get("nextPageToken")
+                if not page_token:
+                    break
+            await session.commit()
+    return synced

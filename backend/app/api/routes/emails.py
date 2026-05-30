@@ -224,6 +224,43 @@ async def recategorize_email(
         return _to_view(e)
 
 
+class SyncRequest(BaseModel):
+    account_email: str = Field(min_length=3, max_length=255)
+    days: int = Field(default=7, ge=1, le=90)
+    max_messages: int = Field(default=100, ge=1, le=500)
+    domain: str = Field(default="personal", max_length=64)
+
+
+class SyncResponse(BaseModel):
+    synced: int
+    account_email: str
+
+
+@router.post("/sync", response_model=SyncResponse)
+async def sync_inbox(
+    body: SyncRequest, user: Annotated[User, Depends(get_current_user)]
+) -> SyncResponse:
+    """Pull recent Gmail messages into the local DB.
+
+    Requires the Google OAuth flow to have been completed for `account_email`
+    (the refresh token must be in keyring). Each pulled message is auto-enriched
+    (scam detection + categorization) so it shows up triaged.
+    """
+    from app.integrations import gmail as gmail_int
+
+    try:
+        count = await gmail_int.sync_recent_emails(
+            user_id=user.id,
+            account_email=body.account_email,
+            days=body.days,
+            max_messages=body.max_messages,
+            domain=body.domain,
+        )
+    except gmail_int.GmailError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return SyncResponse(synced=count, account_email=body.account_email)
+
+
 @router.post("/{email_id}/draft", response_model=DraftResponse)
 async def draft_reply(
     email_id: uuid.UUID,

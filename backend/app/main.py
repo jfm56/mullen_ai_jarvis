@@ -79,6 +79,7 @@ def create_app() -> FastAPI:
         approvals,
         auth,
         backups,
+        calendar,
         computer,
         emails,
         grants,
@@ -102,6 +103,7 @@ def create_app() -> FastAPI:
     app.include_router(reminders.router)
     app.include_router(memory.router)
     app.include_router(emails.router)
+    app.include_router(calendar.router)
     app.include_router(projects.router)
     app.include_router(opportunities.router)
     app.include_router(proposals.router)

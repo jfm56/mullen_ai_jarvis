@@ -178,3 +178,74 @@ async def upsert_email(
         email.raw = raw
         email.synced_at = datetime.now(timezone.utc)
     return email
+
+
+# --- Sync ------------------------------------------------------------------
+
+
+_GMAIL_API = "https://gmail.googleapis.com/gmail/v1"
+
+
+async def sync_recent_emails(
+    *,
+    user_id: uuid.UUID,
+    account_email: str,
+    days: int = 7,
+    max_messages: int = 100,
+    domain: str = "personal",
+) -> int:
+    """Pull recent inbox messages for `account_email` and upsert each.
+
+    Returns the number of messages synced. Uses the stored OAuth refresh
+    token (in keyring) to get a fresh access token. Each message is also
+    enriched (scam + categorize) by the Email Assistant so it shows up
+    triaged in /emails.
+    """
+    import httpx
+
+    from app.agents.email_assistant import EmailAssistantAgent
+    from app.db.base import get_sessionmaker
+    from app.integrations import google_oauth
+
+    access_token = await google_oauth.access_token_for(account_email)
+
+    # Gmail query: inbox, last N days.
+    query = f"in:inbox newer_than:{days}d"
+    async with httpx.AsyncClient(
+        timeout=30.0, headers={"Authorization": f"Bearer {access_token}"}
+    ) as client:
+        # List message ids first.
+        resp = await client.get(
+            f"{_GMAIL_API}/users/me/messages",
+            params={"q": query, "maxResults": min(max_messages, 100)},
+        )
+        if resp.status_code >= 400:
+            raise GmailError(f"messages.list failed: {resp.status_code} {resp.text[:200]}")
+        ids = [m["id"] for m in (resp.json().get("messages") or [])]
+        if not ids:
+            return 0
+
+        # Then fetch each in full. `format=full` returns headers + body parts.
+        synced = 0
+        agent = EmailAssistantAgent()
+        async with get_sessionmaker()() as session:
+            for msg_id in ids:
+                msg_resp = await client.get(
+                    f"{_GMAIL_API}/users/me/messages/{msg_id}",
+                    params={"format": "full"},
+                )
+                if msg_resp.status_code >= 400:
+                    continue
+                raw = msg_resp.json()
+                email = await upsert_email(
+                    session, user_id=user_id, raw=raw, domain=domain
+                )
+                # Enrich (scam + categorize). Inline so the user sees triage
+                # on the very next /emails call.
+                try:
+                    await agent.enrich(email)
+                except Exception:  # noqa: BLE001 - never block sync on enrich
+                    pass
+                synced += 1
+            await session.commit()
+        return synced
