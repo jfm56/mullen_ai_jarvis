@@ -36,6 +36,7 @@ import { ArcReactor } from "@/components/hud/arc-reactor";
 import { AgentRoster, type RosterAgent } from "@/components/hud/agent-roster";
 import { CommandCenterShell } from "@/components/hud/command-center-shell";
 import { HudPanel } from "@/components/hud/hud-panel";
+import { ProactiveSuggestions } from "@/components/hud/proactive-suggestions";
 import { ProjectProgress } from "@/components/hud/project-progress";
 import { StatTile } from "@/components/hud/stat-tile";
 
@@ -486,62 +487,8 @@ export default function CommandCenterPage() {
       right={rightSlot}
       reactor={reactorSlot}
     >
-      {/* Today's top three priorities */}
-      <HudPanel label="TOP PRIORITIES" tone="default">
-        {topTasks === null ? (
-          <div style={{ color: PALETTE.textDim, fontSize: "12px" }}>
-            unable to load tasks
-          </div>
-        ) : topTasks.length === 0 ? (
-          <div style={{ color: PALETTE.textDim, fontSize: "13px" }}>
-            All clear. Nothing pending. {dash}
-          </div>
-        ) : (
-          <ol style={priorityListStyle}>
-            {topTasks.map((t, i) => (
-              <li key={t.id} style={priorityItemStyle}>
-                <span style={priorityNumStyle}>{i + 1}.</span>
-                <span style={{ flex: 1 }}>
-                  <span>{t.title}</span>
-                  {t.due_at ? (
-                    <span
-                      style={{
-                        display: "block",
-                        color: PALETTE.textDim,
-                        fontSize: "11px",
-                        marginTop: "2px",
-                      }}
-                    >
-                      due {new Date(t.due_at).toLocaleString(undefined, {
-                        month: "short",
-                        day: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
-                  ) : null}
-                </span>
-                <span
-                  style={{
-                    fontFamily: "JetBrains Mono, monospace",
-                    fontSize: "10px",
-                    color:
-                      t.priority === "urgent"
-                        ? PALETTE.warning
-                        : t.priority === "high"
-                          ? PALETTE.accent
-                          : PALETTE.textDim,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.1em",
-                  }}
-                >
-                  {t.priority}
-                </span>
-              </li>
-            ))}
-          </ol>
-        )}
-      </HudPanel>
+      {/* Proactive suggestions — replaces the static top-tasks list. */}
+      <ProactiveSuggestions />
 
       {/* Agent roster */}
       <HudPanel label="AGENT ROSTER" tone="default">

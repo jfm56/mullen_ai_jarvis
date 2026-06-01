@@ -13,7 +13,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 
 from app.agents.base import AgentContext
 from app.agents.project_manager import ProjectManagerAgent
@@ -55,6 +55,10 @@ class ProjectView(BaseModel):
     actual_end_date: datetime | None
     created_at: datetime
     updated_at: datetime
+    # Computed: tasks tagged '#project:<slug>' in their notes field
+    completed_tasks: int = 0
+    total_tasks: int = 0
+    percent_complete: float = 0.0
 
 
 class ProjectCreate(BaseModel):
@@ -93,7 +97,8 @@ class ProjectNoteCreate(BaseModel):
     text: str = Field(min_length=1, max_length=10_000)
 
 
-def _to_view(p: Project) -> ProjectView:
+def _to_view(p: Project, *, completed: int = 0, total: int = 0) -> ProjectView:
+    pct = (completed / total * 100.0) if total > 0 else 0.0
     return ProjectView(
         id=str(p.id),
         name=p.name,
@@ -109,7 +114,42 @@ def _to_view(p: Project) -> ProjectView:
         actual_end_date=p.actual_end_date,
         created_at=p.created_at,
         updated_at=p.updated_at,
+        completed_tasks=completed,
+        total_tasks=total,
+        percent_complete=round(pct, 1),
     )
+
+
+async def _task_counts_for_slugs(
+    session, user_id, slugs: list[str]
+) -> dict[str, tuple[int, int]]:
+    """Return {slug: (completed_count, total_count)} for the given slugs.
+
+    Tasks associate with projects via a '#project:<slug>' marker in the
+    task `notes` field. One query handles all projects in a batch.
+    """
+    from app.db.models import Task, TaskStatus
+
+    if not slugs:
+        return {}
+    counts: dict[str, tuple[int, int]] = {}
+    # SQL LIKE on each slug. One query per project (small N for a single user).
+    for slug in slugs:
+        marker = f"#project:{slug}"
+        result = await session.execute(
+            select(
+                func.count(Task.id).label("total"),
+                func.sum(
+                    case((Task.status == TaskStatus.done, 1), else_=0)
+                ).label("completed"),
+            ).where(
+                Task.user_id == user_id,
+                Task.notes.contains(marker),
+            )
+        )
+        row = result.one()
+        counts[slug] = (int(row.completed or 0), int(row.total or 0))
+    return counts
 
 
 def _to_note_view(n: ProjectNote) -> ProjectNoteView:
@@ -140,7 +180,15 @@ async def list_projects(
         stmt = stmt.where(Project.vertical == vertical)
     async with get_sessionmaker()() as session:
         result = await session.execute(stmt)
-        return [_to_view(p) for p in result.scalars()]
+        projects = list(result.scalars())
+        counts = await _task_counts_for_slugs(
+            session, user.id, [p.slug for p in projects]
+        )
+        return [
+            _to_view(p, completed=counts.get(p.slug, (0, 0))[0],
+                     total=counts.get(p.slug, (0, 0))[1])
+            for p in projects
+        ]
 
 
 @router.post("", response_model=ProjectView, status_code=status.HTTP_201_CREATED)
@@ -206,7 +254,9 @@ async def get_project(
         p = await session.get(Project, project_id)
         if p is None or p.user_id != user.id:
             raise HTTPException(status_code=404, detail="project not found")
-        return _to_view(p)
+        counts = await _task_counts_for_slugs(session, user.id, [p.slug])
+        c, t = counts.get(p.slug, (0, 0))
+        return _to_view(p, completed=c, total=t)
 
 
 @router.patch("/{project_id}", response_model=ProjectView)
@@ -223,7 +273,9 @@ async def update_project(
             setattr(p, field_name, value)
         await session.commit()
         await session.refresh(p)
-        return _to_view(p)
+        counts = await _task_counts_for_slugs(session, user.id, [p.slug])
+        c, t = counts.get(p.slug, (0, 0))
+        return _to_view(p, completed=c, total=t)
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)

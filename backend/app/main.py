@@ -77,6 +77,7 @@ def create_app() -> FastAPI:
     from app.api.routes import (
         agents,
         approvals,
+        audit,
         auth,
         backups,
         calendar,
@@ -88,6 +89,7 @@ def create_app() -> FastAPI:
         memory,
         opportunities,
         org_profiles,
+        proactive,
         projects,
         proposals,
         reminders,
@@ -114,6 +116,8 @@ def create_app() -> FastAPI:
     app.include_router(grants.router)
     app.include_router(backups.router)
     app.include_router(voice.router)
+    app.include_router(audit.router)
+    app.include_router(proactive.router)
     app.include_router(agents.router)
     return app
 
