@@ -89,7 +89,17 @@ The Lead Generation Agent working on `client_acme` cannot read `personal` or `cl
 - App allow-list lives in DB; adding an app requires `admin` + typed confirmation.
 - Script allow-list: scripts must be in `scripts/approved/` and pass a hash check on each run.
 - `shell=True`, `subprocess.Popen` with user-supplied strings, and any path containing `..` are blocked at the integration layer, not just at the agent layer.
-- Playwright sessions run with a dedicated profile, no access to your default Chrome profile cookies.
+
+### Browser sessions (Playwright, Phase 9)
+
+- Each session uses a **dedicated `user_data_dir`** under `JARVIS_BROWSER_PROFILES` (or a temp dir per process). Never the default Chrome profile.
+- Profile directory is **wiped on session stop** by default — cookies don't leak across sessions.
+- **Domain allow-list enforced at the integration layer** (`is_domain_allowed`): admin-only `BrowserAllowedDomain` rows declare which hosts the browser may navigate to. `localhost`/`127.0.0.1` always allowed.
+- **Danger-word detection** on element text — `submit`, `send`, `buy`, `pay`, `order`, `charge`, `donate`, `confirm`, `delete`, `remove`, `unsubscribe`, `transfer`, `withdraw`, `deposit`, `invest`, `trade`, `sign up`, `agree`, `accept`, `continue to payment`, `checkout`, `complete`. A click on a matching element raises `DangerActionRequiresApproval` at the primitive layer; the agent then routes through `BaseAgent.propose` with `action.action_external_send`.
+- `type_text(submit=True)` is refused at the primitive layer. Submitting a form requires the dedicated `submit` path which always queues an approval.
+- **Idle timeout** (`idle_timeout_seconds`, default 600). The janitor (`reap_idle_sessions`) closes any session not touched within the window — prevents abandoned logged-in tabs.
+- Every navigate / screenshot / click / type / submit attempt writes both a `BrowserAction` row (for debugging) and an `audit_log` row (for security).
+- Lookalike-domain attacks (`github.com.evil.tld`) are rejected by fnmatch hostname matching — substring matches never count.
 
 ## Backups
 

@@ -153,15 +153,26 @@ Every agent must:
 - Launch allow-listed apps
 - File search and organization (read-only by default)
 - Run scripts from `scripts/approved/` (hash-checked)
-- Browser sessions via Playwright (dedicated profile)
+- Browser sessions via Playwright (dedicated profile, domain allow-list, danger-word detection — see SECURITY.md)
 - Repetitive admin automation
+
+**Browser surface (Phase 9):**
+- `navigate`, `screenshot`, `get_text` — read-only, auto-allowed, logged
+- `type_text` — auto-allowed (typing alone is not externally visible until submit)
+- `click` on non-danger text — low-risk, auto-allowed at `approved_automation`+; requires approval at lower levels
+- `click` on danger-word text (`submit`, `send`, `buy`, `pay`, `order`, `confirm`, `delete`, etc.) — `action.external_send`, always queues approval
+- `submit_form` — `action.external_send`, always queues approval regardless of permission level
+- Domain allow-list enforced at the integration layer (`BrowserAllowedDomain` rows, admin-only to add)
+- Idle timeout (default 10 min) — abandoned sessions auto-close, profile wiped
 
 **Never:**
 - Runs an arbitrary shell command (everything goes through the integration layer's allow-list)
 - Modifies system settings, registry, services, or installs software without `admin` + typed confirmation
 - Deletes files without approval, ever
+- Navigates to a domain not on `BrowserAllowedDomain`
+- Clicks a danger-word element or submits a form without an explicit per-instance approval
 
-**Build phase:** last. Gated on Phases 1+2 being solid. See ROADMAP Phase 7.
+**Build phases:** Phase 7 (apps/scripts/file-ops) + Phase 9 (browser sessions).
 
 ---
 

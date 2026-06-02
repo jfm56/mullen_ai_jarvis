@@ -1445,3 +1445,145 @@ class BackupRecord(Base):
     __table_args__ = (
         Index("ix_backup_records_user_started", "user_id", "started_at"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 9 — Browser Control (Playwright sessions, gated).
+# Layered on top of the existing Phase 7 Computer Control safety primitives.
+# ---------------------------------------------------------------------------
+
+
+class BrowserSessionStatus(str, enum.Enum):
+    starting = "starting"
+    active = "active"
+    idle = "idle"            # past the idle threshold but not yet stopped
+    closed = "closed"
+    crashed = "crashed"
+
+
+class BrowserAllowedDomain(Base):
+    """Allow-list of domain patterns the browser may navigate to.
+
+    Pattern matches use Python's fnmatch (e.g. '*.googleapis.com' or
+    'github.com'). An admin must add a row before the agent can navigate
+    there — same trust model as AllowedApp.
+    """
+
+    __tablename__ = "browser_allowed_domains"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    pattern: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    allow_form_submit: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_browser_domains_user_pattern", "user_id", "pattern", unique=True),
+    )
+
+
+class BrowserSession(Base):
+    """One Playwright session = one chromium process with a dedicated profile.
+
+    Sessions are short-lived. `idle_timeout_seconds` enforces auto-stop so
+    a forgotten tab doesn't sit around with a logged-in cookie store.
+    """
+
+    __tablename__ = "browser_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+
+    label: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    profile_dir: Mapped[str] = mapped_column(String(1024), nullable=False, default="")
+    status: Mapped[BrowserSessionStatus] = mapped_column(
+        SAEnum(BrowserSessionStatus, name="browser_session_status", native_enum=False),
+        default=BrowserSessionStatus.starting,
+        nullable=False,
+        index=True,
+    )
+
+    current_url: Mapped[str] = mapped_column(String(2048), nullable=False, default="")
+    idle_timeout_seconds: Mapped[int] = mapped_column(default=600, nullable=False)
+
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    last_active_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        Index("ix_browser_sessions_user_status", "user_id", "status"),
+    )
+
+
+class BrowserActionType(str, enum.Enum):
+    navigate = "navigate"
+    screenshot = "screenshot"
+    get_text = "get_text"
+    click = "click"
+    type_text = "type_text"
+    submit = "submit"
+    wait = "wait"
+    stop = "stop"
+
+
+class BrowserActionStatus(str, enum.Enum):
+    pending_approval = "pending_approval"
+    executed = "executed"
+    blocked = "blocked"
+    failed = "failed"
+
+
+class BrowserAction(Base):
+    """Append-only log of every browser interaction. One row per attempt."""
+
+    __tablename__ = "browser_actions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("browser_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+
+    action_type: Mapped[BrowserActionType] = mapped_column(
+        SAEnum(BrowserActionType, name="browser_action_type", native_enum=False),
+        nullable=False,
+        index=True,
+    )
+    target: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    args: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    status: Mapped[BrowserActionStatus] = mapped_column(
+        SAEnum(BrowserActionStatus, name="browser_action_status", native_enum=False),
+        default=BrowserActionStatus.pending_approval,
+        nullable=False,
+        index=True,
+    )
+    blocked_reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    result_excerpt: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    approval_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("approvals.id", ondelete="SET NULL")
+    )
+
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False, index=True
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        Index("ix_browser_actions_session_started", "session_id", "started_at"),
+    )
