@@ -206,6 +206,129 @@ export interface Grant {
   eligibility_notes: string;
 }
 
+// ---- Lead Generation ----------------------------------------------------
+
+export type LeadStatus =
+  | "researched"
+  | "contacted"
+  | "meeting"
+  | "proposal"
+  | "won"
+  | "lost"
+  | "disqualified";
+
+export type LeadSource =
+  | "manual"
+  | "inbound_email"
+  | "referral"
+  | "event"
+  | "research"
+  | "other";
+
+export type Vertical =
+  | "healthcare"
+  | "ems"
+  | "fire"
+  | "drone"
+  | "ai_consulting"
+  | "school"
+  | "other";
+
+export type OutreachChannel = "email" | "linkedin" | "phone" | "sms" | "other";
+
+export interface Lead {
+  id: string;
+  name: string;
+  company: string;
+  role: string;
+  email: string;
+  phone: string;
+  vertical: Vertical;
+  source: LeadSource;
+  status: LeadStatus;
+  score: number;
+  notes: string;
+  last_contacted_at: string | null;
+  next_followup_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Outreach {
+  id: string;
+  lead_id: string;
+  channel: OutreachChannel;
+  subject: string;
+  body_text: string;
+  status: string;
+  sent_approval_id: string | null;
+  sent_at: string | null;
+  created_at: string;
+}
+
+export interface FollowupRecommendation {
+  next_followup_at: string | null;
+  reason: string;
+}
+
+export interface DraftOutreachResult {
+  outreach: Outreach;
+  approval_id: string | null;
+  approval_decision: string;
+}
+
+// Fields the backend accepts on lead create/update (excludes server-managed
+// columns like id/score/created_at).
+export interface LeadInput {
+  name: string;
+  company: string;
+  role: string;
+  email: string;
+  phone: string;
+  vertical: Vertical;
+  source: LeadSource;
+  status: LeadStatus;
+  notes: string;
+  last_contacted_at?: string | null;
+  next_followup_at?: string | null;
+}
+
+// ---- Marketing / Social --------------------------------------------------
+
+export type SocialPlatform =
+  | "linkedin"
+  | "facebook"
+  | "x"
+  | "instagram"
+  | "blog"
+  | "other";
+
+export type SocialPostStatus = "draft" | "scheduled" | "published" | "discarded";
+
+export interface SocialPost {
+  id: string;
+  platform: SocialPlatform;
+  vertical: Vertical;
+  title: string;
+  body_text: string;
+  tags: string[];
+  status: SocialPostStatus;
+  scheduled_for: string | null;
+  published_at: string | null;
+  post_approval_id: string | null;
+  engagement: Record<string, unknown>;
+  generated_by: string;
+  model: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DraftPostResult {
+  post: SocialPost;
+  approval_id: string | null;
+  approval_decision: string;
+}
+
 export interface AgentHandleResponse {
   text: string;
   metadata: Record<string, unknown>;
@@ -268,6 +391,101 @@ export const api = {
   // Grants
   async listGrants(): Promise<Grant[]> {
     return request<Grant[]>("/grants");
+  },
+
+  // Leads + outreach
+  async listLeads(
+    filters: {
+      status?: string;
+      vertical?: string;
+      open_only?: boolean;
+      min_score?: number;
+      limit?: number;
+    } = {},
+  ): Promise<Lead[]> {
+    return request<Lead[]>("/leads", { query: filters });
+  },
+  async createLead(input: Partial<LeadInput>): Promise<Lead> {
+    return request<Lead>("/leads", { method: "POST", body: input });
+  },
+  async updateLead(id: string, patch: Partial<LeadInput>): Promise<Lead> {
+    return request<Lead>(`/leads/${id}`, { method: "PATCH", body: patch });
+  },
+  async deleteLead(id: string): Promise<void> {
+    await request<void>(`/leads/${id}`, { method: "DELETE" });
+  },
+  async rescoreLead(id: string): Promise<Lead> {
+    return request<Lead>(`/leads/${id}/score`, { method: "POST" });
+  },
+  async recommendFollowup(id: string): Promise<FollowupRecommendation> {
+    return request<FollowupRecommendation>(
+      `/leads/${id}/recommend-followup`,
+      { method: "POST" },
+    );
+  },
+  async draftOutreach(
+    id: string,
+    input: {
+      channel?: OutreachChannel;
+      user_instructions?: string;
+      permission_level?: string;
+    },
+  ): Promise<DraftOutreachResult> {
+    return request<DraftOutreachResult>(`/leads/${id}/draft-outreach`, {
+      method: "POST",
+      body: input,
+    });
+  },
+  async listOutreach(id: string): Promise<Outreach[]> {
+    return request<Outreach[]>(`/leads/${id}/outreach`);
+  },
+
+  // Marketing / social posts
+  async listSocialPosts(
+    filters: {
+      status?: string;
+      platform?: string;
+      vertical?: string;
+      limit?: number;
+    } = {},
+  ): Promise<SocialPost[]> {
+    return request<SocialPost[]>("/social-posts", { query: filters });
+  },
+  async suggestTopics(vertical: Vertical, count = 5): Promise<string[]> {
+    return request<string[]>("/social-posts/suggest-topics", {
+      method: "POST",
+      body: { vertical, count },
+    });
+  },
+  async draftPost(input: {
+    platform: SocialPlatform;
+    vertical: Vertical;
+    topic: string;
+    user_instructions?: string;
+    permission_level?: string;
+  }): Promise<DraftPostResult> {
+    return request<DraftPostResult>("/social-posts/draft", {
+      method: "POST",
+      body: input,
+    });
+  },
+  async updateSocialPost(
+    id: string,
+    patch: {
+      title?: string;
+      body_text?: string;
+      status?: SocialPostStatus;
+      scheduled_for?: string | null;
+      engagement?: Record<string, unknown>;
+    },
+  ): Promise<SocialPost> {
+    return request<SocialPost>(`/social-posts/${id}`, {
+      method: "PATCH",
+      body: patch,
+    });
+  },
+  async deleteSocialPost(id: string): Promise<void> {
+    await request<void>(`/social-posts/${id}`, { method: "DELETE" });
   },
 
   // Agent invocation — generic shape works for all 8 agents.

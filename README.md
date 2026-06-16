@@ -67,7 +67,7 @@ python -m app.cli init
 # Terminal 1: backend
 cd F:\Projects\mullen_ai_jarvis\backend
 .venv\Scripts\Activate.ps1
-uvicorn app.main:app --reload
+python -m app                 # serves http://127.0.0.1:8000
 
 # Terminal 2: frontend
 cd F:\Projects\mullen_ai_jarvis\frontend
@@ -75,8 +75,15 @@ npm install                  # first time only
 npm run dev                  # open http://localhost:3000
 ```
 
+> **Windows:** start the backend with `python -m app`, **not** `uvicorn app.main:app`
+> directly. The async Postgres driver (psycopg) needs a SelectorEventLoop, but the
+> bare `uvicorn` CLI builds a ProactorEventLoop before loading the app, so every
+> request fails with a 500. `python -m app` sets the right policy first — see
+> [`backend/app/__main__.py`](backend/app/__main__.py).
+
 Sign in with the user you created via `app.cli init`. The UI gives you Today,
-Tasks, Approvals, Projects, Grants, generic Agent chat, and Settings.
+Tasks, Approvals, Projects, Leads, Grants, Marketing, generic Agent chat, and
+Settings.
 
 ## Repository layout
 
