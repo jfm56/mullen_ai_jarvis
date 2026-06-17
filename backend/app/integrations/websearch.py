@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 
 class WebSearchError(RuntimeError):
@@ -134,3 +136,79 @@ async def _brave(query: str, max_results: int) -> list[SearchResult]:
         )
         for x in results
     ]
+
+
+# --- Contact-email enrichment ----------------------------------------------
+
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+# Substrings that mark an address as boilerplate/asset noise, not a real contact.
+_EMAIL_SKIP = (
+    "example.com",
+    "yourdomain",
+    "domain.com",
+    "email.com",
+    "sentry.",
+    "wixpress",
+    "@2x",
+    "@3x",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".svg",
+    ".webp",
+)
+
+
+async def find_contact_email(website: str, *, timeout: float = 8.0) -> str:
+    """Best-effort: fetch an org's site and return a plausible contact email.
+
+    Tries the homepage then a couple of common contact/about paths, preferring
+    an address on the site's own domain. Returns "" on any failure — callers
+    must treat this as advisory, never authoritative. Skips localhost/internal
+    hosts as a basic SSRF guard.
+    """
+    url = (website or "").strip()
+    if not url:
+        return ""
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+    host = (urlparse(url).hostname or "").lower()
+    if not host or "." not in host or host in ("localhost", "127.0.0.1") or host.endswith(
+        (".local", ".internal")
+    ):
+        return ""
+
+    import httpx
+
+    base = url.rstrip("/")
+    pages = [base, base + "/contact", base + "/contact-us", base + "/about"]
+    found: list[str] = []
+    try:
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            follow_redirects=True,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; JarvisLeadResearch/1.0)"},
+        ) as client:
+            for page in pages:
+                try:
+                    resp = await client.get(page)
+                except httpx.HTTPError:
+                    continue
+                if resp.status_code >= 400:
+                    continue
+                for match in _EMAIL_RE.findall(resp.text or ""):
+                    low = match.lower()
+                    if any(s in low for s in _EMAIL_SKIP):
+                        continue
+                    found.append(match)
+                if found:
+                    break
+    except Exception:  # noqa: BLE001 - enrichment is strictly best-effort
+        return ""
+
+    if not found:
+        return ""
+    domain = host[4:] if host.startswith("www.") else host
+    on_domain = [e for e in found if e.lower().endswith("@" + domain)]
+    return (on_domain or found)[0]

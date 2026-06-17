@@ -7,6 +7,7 @@ gate as Email send / Proposal submit / Social publish.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from dataclasses import dataclass, field
@@ -378,7 +379,29 @@ class LeadGenerationAgent(BaseAgent):
         candidates = await self._extract_candidates(vertical, region, need, results)
         if not candidates:
             return []
+        await self._enrich_emails(candidates, limit=max_candidates)
         return await self._insert_candidates(ctx, vertical, candidates, max_candidates)
+
+    @staticmethod
+    async def _enrich_emails(candidates: list[dict], *, limit: int) -> None:
+        """Best-effort: fill `contact_email` for candidates that have a website
+        but no email yet, by fetching the org's site. Mutates in place; the
+        whole pass is best-effort and never raises."""
+        targets = [
+            c
+            for c in candidates
+            if not str(c.get("contact_email") or "").strip()
+            and str(c.get("website") or "").strip()
+        ][: max(limit, 0)]
+        if not targets:
+            return
+
+        async def _one(c: dict) -> None:
+            email = await websearch.find_contact_email(str(c.get("website")))
+            if email:
+                c["contact_email"] = email
+
+        await asyncio.gather(*(_one(c) for c in targets), return_exceptions=True)
 
     @staticmethod
     def _discovery_queries(vertical: Vertical, region: str, need: str) -> list[str]:
