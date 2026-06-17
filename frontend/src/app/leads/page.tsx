@@ -126,6 +126,13 @@ export default function LeadsPage() {
   const [cSource, setCSource] = useState<LeadSource>("manual");
   const [cNotes, setCNotes] = useState("");
 
+  // Discover (web search)
+  const [dVertical, setDVertical] = useState<Vertical>("ems");
+  const [dRegion, setDRegion] = useState("");
+  const [dNeed, setDNeed] = useState("");
+  const [discovering, setDiscovering] = useState(false);
+  const [discoverNote, setDiscoverNote] = useState<string | null>(null);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
@@ -179,6 +186,26 @@ export default function LeadsPage() {
     }
   }
 
+  async function onDiscover(e: FormEvent) {
+    e.preventDefault();
+    setDiscovering(true);
+    setDiscoverNote(null);
+    setError(null);
+    try {
+      const res = await api.discoverLeads({
+        vertical: dVertical,
+        region: dRegion.trim(),
+        need: dNeed.trim(),
+      });
+      setDiscoverNote(res.note);
+      await refresh();
+    } catch (err) {
+      setError(errText(err, "discovery failed"));
+    } finally {
+      setDiscovering(false);
+    }
+  }
+
   if (!user) return null;
 
   const highScore = leads.filter((l) => l.score >= 70).length;
@@ -202,6 +229,59 @@ export default function LeadsPage() {
           Pending sends → Approvals
         </Link>
       </header>
+
+      {/* Discover — web search → candidate orgs */}
+      <form onSubmit={onDiscover} className="card space-y-2 border-hud-accent_dim">
+        <div className="flex items-center justify-between">
+          <div className="label text-hud-accent">Discover leads · web search</div>
+          <span className="text-[10px] uppercase tracking-wide text-hud-text_dim">
+            finds prospective client orgs + need signals
+          </span>
+        </div>
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-[150px_1fr_1fr_auto]">
+          <select
+            className="input"
+            value={dVertical}
+            onChange={(e) => setDVertical(e.target.value as Vertical)}
+            aria-label="discovery vertical"
+          >
+            {VERTICALS.map((v) => (
+              <option key={v} value={v}>
+                {VERTICAL_LABEL[v]}
+              </option>
+            ))}
+          </select>
+          <input
+            className="input"
+            placeholder="Region — e.g. New Jersey, Philadelphia metro"
+            value={dRegion}
+            onChange={(e) => setDRegion(e.target.value)}
+          />
+          <input
+            className="input"
+            placeholder="What they need — e.g. QA/QI, data analytics, grant help"
+            value={dNeed}
+            onChange={(e) => setDNeed(e.target.value)}
+          />
+          <button
+            type="submit"
+            className="btn-primary whitespace-nowrap"
+            disabled={discovering}
+          >
+            {discovering ? "Searching…" : "Discover"}
+          </button>
+        </div>
+        <p className="text-xs text-hud-text_dim">
+          Searches the web, extracts real candidate organizations, and adds them here as{" "}
+          <span className="text-hud-text">researched</span> leads to qualify — it never contacts
+          anyone.{discovering && " This can take ~30–60s."}
+        </p>
+        {discoverNote && (
+          <div className="rounded-sm border border-hud-accent_dim bg-hud-bg/50 p-2 text-xs text-hud-text">
+            {discoverNote}
+          </div>
+        )}
+      </form>
 
       {/* Filters */}
       <div className="card flex flex-wrap items-end gap-3">

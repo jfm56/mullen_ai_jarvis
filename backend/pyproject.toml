@@ -54,6 +54,11 @@ cloud = [
 automation = [
     "playwright>=1.48",
 ]
+discovery = [
+    # No-key DuckDuckGo web search for lead discovery. A real search API
+    # (Tavily/Brave) is used instead when JARVIS_SEARCH_API_KEY is set.
+    "ddgs>=6.0",
+]
 
 [tool.setuptools.packages.find]
 include = ["app*"]

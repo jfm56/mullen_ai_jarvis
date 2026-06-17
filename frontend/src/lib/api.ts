@@ -277,6 +277,13 @@ export interface DraftOutreachResult {
   approval_decision: string;
 }
 
+export interface DiscoverResult {
+  added: Lead[];
+  count: number;
+  provider: string;
+  note: string;
+}
+
 // Fields the backend accepts on lead create/update (excludes server-managed
 // columns like id/score/created_at).
 export interface LeadInput {
@@ -407,6 +414,17 @@ export const api = {
   },
   async createLead(input: Partial<LeadInput>): Promise<Lead> {
     return request<Lead>("/leads", { method: "POST", body: input });
+  },
+  async discoverLeads(input: {
+    vertical: Vertical;
+    region?: string;
+    need?: string;
+    max_candidates?: number;
+  }): Promise<DiscoverResult> {
+    return request<DiscoverResult>("/leads/discover", {
+      method: "POST",
+      body: input,
+    });
   },
   async updateLead(id: string, patch: Partial<LeadInput>): Promise<Lead> {
     return request<Lead>(`/leads/${id}`, { method: "PATCH", body: patch });

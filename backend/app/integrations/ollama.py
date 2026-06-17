@@ -50,6 +50,7 @@ async def generate(
     model: str | None = None,
     system: str | None = None,
     options: dict[str, Any] | None = None,
+    response_format: str | dict[str, Any] | None = None,
     timeout: float = 60.0,
 ) -> GenerateResult:
     """Synchronous-style single-shot generation against Ollama.
@@ -68,6 +69,9 @@ async def generate(
         payload["system"] = system
     if options:
         payload["options"] = options
+    if response_format is not None:
+        # Ollama: "json" forces valid JSON output; a dict is treated as a schema.
+        payload["format"] = response_format
 
     url = settings.ollama_host.rstrip("/") + "/api/generate"
     try:

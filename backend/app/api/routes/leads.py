@@ -107,6 +107,20 @@ class FollowupRecommendation(BaseModel):
     reason: str
 
 
+class DiscoverRequest(BaseModel):
+    vertical: Vertical = Vertical.ems
+    region: str = Field(default="", max_length=200)
+    need: str = Field(default="", max_length=500)
+    max_candidates: int = Field(default=8, ge=1, le=25)
+
+
+class DiscoverResponse(BaseModel):
+    added: list["LeadView"]
+    count: int
+    provider: str
+    note: str
+
+
 def _to_view(L: Lead) -> LeadView:
     return LeadView(
         id=str(L.id),
@@ -181,6 +195,48 @@ async def create_lead(
         await session.commit()
         await session.refresh(lead)
     return _to_view(lead)
+
+
+@router.post("/discover", response_model=DiscoverResponse)
+async def discover_leads(
+    body: DiscoverRequest, user: Annotated[User, Depends(get_current_user)]
+) -> DiscoverResponse:
+    """Web-search for prospective client orgs and add them to the pipeline.
+
+    Adds candidates as `researched` leads for review — never contacts anyone.
+    """
+    from app.integrations import websearch
+
+    agent = LeadGenerationAgent()
+    ctx = AgentContext(
+        user_id=user.id,
+        domain="business",
+        permission_level=PermissionLevel.ask_before_action,
+        request_id=str(uuid.uuid4()),
+        input_text=body.need,
+        metadata={},
+    )
+    leads = await agent.discover_leads(
+        ctx,
+        vertical=body.vertical,
+        region=body.region,
+        need=body.need,
+        max_candidates=body.max_candidates,
+    )
+    provider = websearch.active_provider()
+    if leads:
+        note = f"Added {len(leads)} candidate(s) via {provider} search — review and qualify them."
+    else:
+        note = (
+            f"No new candidates from {provider} search. Try a broader region or need, "
+            "or set a search API key for higher-quality results."
+        )
+    return DiscoverResponse(
+        added=[_to_view(L) for L in leads],
+        count=len(leads),
+        provider=provider,
+        note=note,
+    )
 
 
 @router.get("/{lead_id}", response_model=LeadView)
