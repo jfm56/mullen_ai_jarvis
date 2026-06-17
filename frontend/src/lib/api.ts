@@ -457,6 +457,14 @@ export const api = {
   async listOutreach(id: string): Promise<Outreach[]> {
     return request<Outreach[]>(`/leads/${id}/outreach`);
   },
+  async sendOutreach(
+    leadId: string,
+    outreachId: string,
+  ): Promise<{ outreach: Outreach; sent_message_id: string; sent_from: string }> {
+    return request(`/leads/${leadId}/outreach/${outreachId}/send`, {
+      method: "POST",
+    });
+  },
 
   // Marketing / social posts
   async listSocialPosts(

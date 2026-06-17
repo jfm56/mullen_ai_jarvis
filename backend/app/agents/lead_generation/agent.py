@@ -310,6 +310,15 @@ class LeadGenerationAgent(BaseAgent):
                 "channel": channel.value,
             },
         )
+        # Record which approval gates this send, so the send actuator can
+        # confirm the user settled it before anything leaves the machine.
+        if outcome.approval is not None:
+            async with get_sessionmaker()() as session:
+                row = await session.get(OutreachMessage, msg.id)
+                if row is not None:
+                    row.sent_approval_id = outcome.approval.id
+                    await session.commit()
+            msg.sent_approval_id = outcome.approval.id
         return msg, outcome
 
     @staticmethod

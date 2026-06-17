@@ -20,6 +20,7 @@ import base64
 import os
 import uuid
 from datetime import datetime, timezone
+from email.message import EmailMessage
 from email.utils import parsedate_to_datetime
 from typing import Any
 from urllib.parse import urlencode
@@ -249,3 +250,49 @@ async def sync_recent_emails(
                 synced += 1
             await session.commit()
         return synced
+
+
+# --- Send -------------------------------------------------------------------
+
+
+async def send_message(
+    *,
+    account_email: str,
+    to: str,
+    subject: str,
+    body_text: str,
+) -> str:
+    """Send a plain-text email via the Gmail API as `account_email`.
+
+    Returns the sent Gmail message id. Requires the `gmail.send` scope to have
+    been granted for `account_email` (refresh token in keyring via the OAuth
+    flow). Raises GmailError if the account isn't connected or the API rejects.
+    """
+    import httpx
+
+    from app.integrations import google_oauth
+
+    if not (to or "").strip():
+        raise GmailError("no recipient address")
+
+    try:
+        access_token = await google_oauth.access_token_for(account_email)
+    except google_oauth.GoogleOAuthError as exc:
+        raise GmailError(str(exc)) from exc
+
+    message = EmailMessage()
+    message["To"] = to
+    message["From"] = account_email
+    message["Subject"] = subject
+    message.set_content(body_text)
+    raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
+
+    async with httpx.AsyncClient(
+        timeout=30.0, headers={"Authorization": f"Bearer {access_token}"}
+    ) as client:
+        resp = await client.post(
+            f"{_GMAIL_API}/users/me/messages/send", json={"raw": raw}
+        )
+    if resp.status_code >= 400:
+        raise GmailError(f"gmail send failed: {resp.status_code} {resp.text[:200]}")
+    return resp.json().get("id", "")

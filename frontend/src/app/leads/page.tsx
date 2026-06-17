@@ -456,6 +456,8 @@ function LeadRow({ lead, onChanged }: { lead: Lead; onChanged: () => void }) {
 
   // Outreach history (loaded lazily on expand)
   const [history, setHistory] = useState<Outreach[] | null>(null);
+  const [sendingId, setSendingId] = useState<string | null>(null);
+  const [sendMsg, setSendMsg] = useState<string | null>(null);
 
   const loadHistory = useCallback(async () => {
     try {
@@ -464,6 +466,21 @@ function LeadRow({ lead, onChanged }: { lead: Lead; onChanged: () => void }) {
       setHistory([]);
     }
   }, [lead.id]);
+
+  async function sendOutreach(m: Outreach) {
+    setSendingId(m.id);
+    setSendMsg(null);
+    try {
+      const r = await api.sendOutreach(lead.id, m.id);
+      setSendMsg(`Sent from ${r.sent_from}.`);
+      await loadHistory();
+      onChanged();
+    } catch (err) {
+      setSendMsg(errText(err, "send failed"));
+    } finally {
+      setSendingId(null);
+    }
+  }
 
   function toggle() {
     const next = !open;
@@ -847,18 +864,38 @@ function LeadRow({ lead, onChanged }: { lead: Lead; onChanged: () => void }) {
             <div className="space-y-1">
               <div className="label">Outreach history</div>
               <ul className="divide-y divide-hud-border">
-                {history.map((m) => (
-                  <li key={m.id} className="flex items-center justify-between gap-3 py-2 text-xs">
-                    <span className="truncate text-hud-text">
-                      {titleCase(m.channel)}
-                      {m.subject ? ` · ${m.subject}` : ""}
-                    </span>
-                    <span className="shrink-0 text-hud-text_dim">
-                      {m.status} · {fmtDate(m.created_at)}
-                    </span>
-                  </li>
-                ))}
+                {history.map((m) => {
+                  const sendable = m.status === "draft" && m.channel === "email";
+                  return (
+                    <li
+                      key={m.id}
+                      className="flex items-center justify-between gap-3 py-2 text-xs"
+                    >
+                      <span className="truncate text-hud-text">
+                        {titleCase(m.channel)}
+                        {m.subject ? ` · ${m.subject}` : ""}
+                      </span>
+                      <span className="flex shrink-0 items-center gap-2 text-hud-text_dim">
+                        {m.status} · {fmtDate(m.created_at)}
+                        {sendable && (
+                          <button
+                            type="button"
+                            className="btn-primary px-2 py-0.5 text-[11px]"
+                            onClick={() => sendOutreach(m)}
+                            disabled={sendingId === m.id}
+                            title="Sends the real email — only works after you approve it and connect Gmail"
+                          >
+                            {sendingId === m.id ? "Sending…" : "Send via Gmail"}
+                          </button>
+                        )}
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
+              {sendMsg && (
+                <div className="text-xs text-hud-text_dim">{sendMsg}</div>
+              )}
             </div>
           )}
         </div>
