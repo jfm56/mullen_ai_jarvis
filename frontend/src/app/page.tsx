@@ -29,6 +29,8 @@ import {
   type FormEvent,
 } from "react";
 
+import { useRouter } from "next/navigation";
+
 import { ApiError, api, request, type Project, type Task } from "@/lib/api";
 import { useRequireAuth } from "@/lib/auth";
 import { VoiceButton } from "@/components/voice-button";
@@ -81,6 +83,7 @@ function greetingForHour(hour: number): "morning" | "afternoon" | "evening" {
 // ---- Component ---------------------------------------------------------
 export default function CommandCenterPage() {
   const user = useRequireAuth();
+  const router = useRouter();
 
   // Greeting — recompute when the hour rolls over.
   const [greeting, setGreeting] = useState<"morning" | "afternoon" | "evening">(
@@ -492,7 +495,10 @@ export default function CommandCenterPage() {
 
       {/* Agent roster */}
       <HudPanel label="AGENT ROSTER" tone="default">
-        <AgentRoster agents={agents} />
+        <AgentRoster
+          agents={agents}
+          onSelect={(id) => router.push(`/agents?agent=${id}`)}
+        />
       </HudPanel>
 
       {/* Ask Jarvis composer */}

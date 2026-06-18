@@ -8,7 +8,7 @@ POST /leads/{id}/draft-outreach generates + queues an outreach approval.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -19,15 +19,19 @@ from app.agents.base import AgentContext
 from app.agents.lead_generation import LeadGenerationAgent
 from app.db.base import get_sessionmaker
 from app.db.models import (
+    ApprovalStatus,
     Lead,
     LeadSource,
     LeadStatus,
+    OAuthAccount,
     OutreachChannel,
     OutreachMessage,
     OutreachStatus,
     User,
     Vertical,
 )
+from app.integrations import gmail
+from app.security import approvals
 from app.security.auth import get_current_user
 from app.security.permissions import PermissionLevel
 
@@ -107,6 +111,20 @@ class FollowupRecommendation(BaseModel):
     reason: str
 
 
+class DiscoverRequest(BaseModel):
+    vertical: Vertical = Vertical.ems
+    region: str = Field(default="", max_length=200)
+    need: str = Field(default="", max_length=500)
+    max_candidates: int = Field(default=8, ge=1, le=25)
+
+
+class DiscoverResponse(BaseModel):
+    added: list["LeadView"]
+    count: int
+    provider: str
+    note: str
+
+
 def _to_view(L: Lead) -> LeadView:
     return LeadView(
         id=str(L.id),
@@ -181,6 +199,48 @@ async def create_lead(
         await session.commit()
         await session.refresh(lead)
     return _to_view(lead)
+
+
+@router.post("/discover", response_model=DiscoverResponse)
+async def discover_leads(
+    body: DiscoverRequest, user: Annotated[User, Depends(get_current_user)]
+) -> DiscoverResponse:
+    """Web-search for prospective client orgs and add them to the pipeline.
+
+    Adds candidates as `researched` leads for review — never contacts anyone.
+    """
+    from app.integrations import websearch
+
+    agent = LeadGenerationAgent()
+    ctx = AgentContext(
+        user_id=user.id,
+        domain="business",
+        permission_level=PermissionLevel.ask_before_action,
+        request_id=str(uuid.uuid4()),
+        input_text=body.need,
+        metadata={},
+    )
+    leads = await agent.discover_leads(
+        ctx,
+        vertical=body.vertical,
+        region=body.region,
+        need=body.need,
+        max_candidates=body.max_candidates,
+    )
+    provider = websearch.active_provider()
+    if leads:
+        note = f"Added {len(leads)} candidate(s) via {provider} search — review and qualify them."
+    else:
+        note = (
+            f"No new candidates from {provider} search. Try a broader region or need, "
+            "or set a search API key for higher-quality results."
+        )
+    return DiscoverResponse(
+        added=[_to_view(L) for L in leads],
+        count=len(leads),
+        provider=provider,
+        note=note,
+    )
 
 
 @router.get("/{lead_id}", response_model=LeadView)
@@ -298,3 +358,105 @@ async def list_lead_outreach(
             .order_by(OutreachMessage.created_at.desc())
         )
         return [_outreach_to_view(m) for m in result.scalars()]
+
+
+class SendOutreachResponse(BaseModel):
+    outreach: OutreachView
+    sent_message_id: str
+    sent_from: str
+
+
+@router.post(
+    "/{lead_id}/outreach/{outreach_id}/send", response_model=SendOutreachResponse
+)
+async def send_outreach(
+    lead_id: uuid.UUID,
+    outreach_id: uuid.UUID,
+    user: Annotated[User, Depends(get_current_user)],
+) -> SendOutreachResponse:
+    """Actually send a drafted email outreach via Gmail — AFTER its approval.
+
+    Gating, in order: lead/outreach must belong to the user; outreach must be
+    an un-sent email draft with a linked approval; the lead must have an email;
+    a Gmail account with `gmail.send` must be connected; and the linked approval
+    must be in `approved` status. Only then does the email leave the machine.
+    """
+    async with get_sessionmaker()() as session:
+        lead = await session.get(Lead, lead_id)
+        if lead is None or lead.user_id != user.id:
+            raise HTTPException(status_code=404, detail="lead not found")
+        msg = await session.get(OutreachMessage, outreach_id)
+        if msg is None or msg.lead_id != lead_id:
+            raise HTTPException(status_code=404, detail="outreach not found")
+        if msg.status == OutreachStatus.sent:
+            raise HTTPException(status_code=409, detail="this outreach was already sent")
+        if msg.channel != OutreachChannel.email:
+            raise HTTPException(
+                status_code=400, detail="only email outreach can be sent via Gmail"
+            )
+        if not (lead.email or "").strip():
+            raise HTTPException(
+                status_code=400, detail="lead has no email address — add one first"
+            )
+        if msg.sent_approval_id is None:
+            raise HTTPException(
+                status_code=412, detail="no approval linked — re-draft the outreach"
+            )
+        acct_res = await session.execute(
+            select(OAuthAccount).where(
+                OAuthAccount.user_id == user.id,
+                OAuthAccount.provider == "google",
+                OAuthAccount.revoked_at.is_(None),
+            )
+        )
+        account = next(
+            (a for a in acct_res.scalars() if "gmail.send" in (a.scopes or "")), None
+        )
+        if account is None:
+            raise HTTPException(
+                status_code=412,
+                detail=(
+                    "no Gmail account connected with send permission — connect one "
+                    "via /auth/google/start?service=gmail.send"
+                ),
+            )
+        approval_id = msg.sent_approval_id
+        to_addr, subject, body_text = lead.email, msg.subject, msg.body_text
+        from_email = account.account_email
+
+    appr = await approvals.get(approval_id)
+    if appr is None:
+        raise HTTPException(status_code=404, detail="linked approval not found")
+    if appr.status is not ApprovalStatus.approved:
+        raise HTTPException(
+            status_code=412,
+            detail=(
+                f"approval is '{appr.status.value}', not approved — settle it on "
+                "the Approvals page first"
+            ),
+        )
+
+    try:
+        sent_id = await gmail.send_message(
+            account_email=from_email, to=to_addr, subject=subject, body_text=body_text
+        )
+    except gmail.GmailError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    now = datetime.now(timezone.utc)
+    async with get_sessionmaker()() as session:
+        msg = await session.get(OutreachMessage, outreach_id)
+        msg.status = OutreachStatus.sent
+        msg.sent_at = now
+        lead = await session.get(Lead, lead_id)
+        lead.last_contacted_at = now
+        if lead.status is LeadStatus.researched:
+            lead.status = LeadStatus.contacted
+        lead.score = LeadGenerationAgent.score_lead(lead)
+        await session.commit()
+        await session.refresh(msg)
+
+    await approvals.mark_outcome(approval_id, executed=True, note=f"gmail id={sent_id}")
+    return SendOutreachResponse(
+        outreach=_outreach_to_view(msg), sent_message_id=sent_id, sent_from=from_email
+    )

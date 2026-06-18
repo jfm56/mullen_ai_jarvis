@@ -7,6 +7,9 @@ gate as Email send / Proposal submit / Social publish.
 
 from __future__ import annotations
 
+import asyncio
+import json
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
@@ -16,13 +19,14 @@ from app.agents.base import AgentContext, AgentResult, BaseAgent
 from app.db.base import get_sessionmaker
 from app.db.models import (
     Lead,
+    LeadSource,
     LeadStatus,
     OutreachChannel,
     OutreachMessage,
     OutreachStatus,
     Vertical,
 )
-from app.integrations import ollama
+from app.integrations import ollama, websearch
 from app.security.permissions import ActionClass, PermissionLevel
 
 
@@ -37,6 +41,22 @@ When drafting outreach:
 - One clear ask (a 20-minute call this week or next).
 - No banned words: leverage, synergy, revolutionize, transform.
 - Sign off as Jim.
+"""
+
+
+_DISCOVERY_SYSTEM = """You are Jarvis, lead-discovery analyst for Jim Mullen's
+firm, Mullen Analytics & AI Consulting (healthcare / EMS / fire / drone / AI
+consulting). From raw web-search results you identify PROSPECTIVE CLIENT
+organizations — agencies, departments, hospitals, fire districts, companies —
+that plausibly NEED the described help and that Jim could pitch.
+
+Rules:
+- Only real prospective-client organizations. EXCLUDE job boards (Indeed,
+  ZipRecruiter, LinkedIn job posts), other consultants/competitors, vendor
+  directories, Wikipedia, and pure news aggregators.
+- Prefer organizations showing a concrete signal of need (an RFP, a posting, a
+  funding award, a new mandate, a problem in the news).
+- Be honest: if a result is not a viable client org, drop it. Quality over count.
 """
 
 
@@ -291,6 +311,15 @@ class LeadGenerationAgent(BaseAgent):
                 "channel": channel.value,
             },
         )
+        # Record which approval gates this send, so the send actuator can
+        # confirm the user settled it before anything leaves the machine.
+        if outcome.approval is not None:
+            async with get_sessionmaker()() as session:
+                row = await session.get(OutreachMessage, msg.id)
+                if row is not None:
+                    row.sent_approval_id = outcome.approval.id
+                    await session.commit()
+            msg.sent_approval_id = outcome.approval.id
         return msg, outcome
 
     @staticmethod
@@ -312,3 +341,228 @@ class LeadGenerationAgent(BaseAgent):
             "One ask (20-min call this week or next). Plain text. Sign off as Jim."
         )
         return "\n".join(lines)
+
+    # ---- lead discovery (web search -> structured candidates) -------------
+
+    async def discover_leads(
+        self,
+        ctx: AgentContext,
+        *,
+        vertical: Vertical,
+        region: str = "",
+        need: str = "",
+        max_candidates: int = 8,
+    ) -> list[Lead]:
+        """Web-search for prospective client orgs, extract structured candidates
+        with the LLM, dedupe against the existing pipeline, score, and persist
+        them as `researched` leads (source=research). Returns the new leads.
+
+        Discovery only ADDS candidates to review — it never contacts anyone.
+        Outreach still goes through `draft_outreach` + the approval gate.
+        """
+        queries = self._discovery_queries(vertical, region, need)
+
+        results: list[websearch.SearchResult] = []
+        seen_urls: set[str] = set()
+        for q in queries:
+            try:
+                hits = await websearch.search(q, max_results=6)
+            except websearch.WebSearchError:
+                continue
+            for r in hits:
+                if r.url and r.url not in seen_urls:
+                    seen_urls.add(r.url)
+                    results.append(r)
+        if not results:
+            return []
+
+        candidates = await self._extract_candidates(vertical, region, need, results)
+        if not candidates:
+            return []
+        await self._enrich_emails(candidates, limit=max_candidates)
+        return await self._insert_candidates(ctx, vertical, candidates, max_candidates)
+
+    @staticmethod
+    async def _enrich_emails(candidates: list[dict], *, limit: int) -> None:
+        """Best-effort: fill `contact_email` for candidates that have a website
+        but no email yet, by fetching the org's site. Mutates in place; the
+        whole pass is best-effort and never raises."""
+        targets = [
+            c
+            for c in candidates
+            if not str(c.get("contact_email") or "").strip()
+            and str(c.get("website") or "").strip()
+        ][: max(limit, 0)]
+        if not targets:
+            return
+
+        async def _one(c: dict) -> None:
+            email = await websearch.find_contact_email(str(c.get("website")))
+            if email:
+                c["contact_email"] = email
+
+        await asyncio.gather(*(_one(c) for c in targets), return_exceptions=True)
+
+    @staticmethod
+    def _discovery_queries(vertical: Vertical, region: str, need: str) -> list[str]:
+        region = " ".join(region.split())
+        need = " ".join(need.split())
+        loc = f" {region}" if region else ""
+        subject = {
+            "ems": "EMS agency",
+            "fire": "fire department fire district",
+            "healthcare": "hospital health system clinic",
+            "drone": "public safety drone UAS program",
+            "ai_consulting": "government agency healthcare organization",
+            "school": "school district university",
+            "other": "organization",
+        }.get(vertical.value, f"{vertical.value} organization")
+
+        raw = [
+            f"{subject}{loc} request for proposal {need}",
+            f"{subject}{loc} seeking {need or 'consultant'}",
+            f"{subject}{loc} {need} grant funding",
+        ]
+        seen: set[str] = set()
+        out: list[str] = []
+        for q in raw:
+            ql = " ".join(q.split())
+            if ql and ql.lower() not in seen:
+                seen.add(ql.lower())
+                out.append(ql)
+        return out
+
+    async def _extract_candidates(
+        self,
+        vertical: Vertical,
+        region: str,
+        need: str,
+        results: list[websearch.SearchResult],
+    ) -> list[dict]:
+        blocks = [
+            f"[{i}] {r.title}\n    url: {r.url}\n    {r.snippet[:300]}"
+            for i, r in enumerate(results[:20], 1)
+        ]
+        prompt = (
+            f"Target vertical: {vertical.value}\n"
+            f"Region: {region or 'any'}\n"
+            f"What Jim can help with: {need or 'operations / quality / analytics consulting'}\n\n"
+            "Search results:\n" + "\n".join(blocks) + "\n\n"
+            'Return a JSON object {"candidates": [...]}. Each candidate has keys: '
+            '"name", "org_type", "location", "why_relevant", "website", '
+            '"contact_email", "source_url".\n'
+            "- name = the prospective CLIENT organization (never a consultant or job board).\n"
+            "- why_relevant = the specific signal from the results (cite it).\n"
+            "- contact_email = only if visibly present in the text, else \"\".\n"
+            "- source_url = the result url that supports this candidate.\n"
+            "Drop anything that is not a viable client. Max 12 candidates."
+        )
+        try:
+            gen = await ollama.generate(
+                prompt, system=_DISCOVERY_SYSTEM, response_format="json", timeout=120.0
+            )
+        except ollama.OllamaError:
+            return []
+        return self._parse_candidates(gen.text)
+
+    @staticmethod
+    def _parse_candidates(text: str) -> list[dict]:
+        text = (text or "").strip()
+        if not text:
+            return []
+        data: object = None
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            match = re.search(r"\{.*\}", text, re.S)
+            if match:
+                try:
+                    data = json.loads(match.group(0))
+                except json.JSONDecodeError:
+                    return []
+        if isinstance(data, list):
+            items = data
+        elif isinstance(data, dict):
+            items = data.get("candidates") or data.get("results") or []
+        else:
+            items = []
+        return [
+            it
+            for it in items
+            if isinstance(it, dict)
+            and (it.get("name") or it.get("org") or it.get("organization"))
+        ]
+
+    async def _insert_candidates(
+        self,
+        ctx: AgentContext,
+        vertical: Vertical,
+        candidates: list[dict],
+        max_candidates: int,
+    ) -> list[Lead]:
+        inserted: list[Lead] = []
+        async with get_sessionmaker()() as session:
+            existing = await session.execute(
+                select(Lead).where(Lead.user_id == ctx.user_id)
+            )
+            seen_companies: set[str] = set()
+            seen_emails: set[str] = set()
+            for L in existing.scalars():
+                if L.company:
+                    seen_companies.add(L.company.strip().lower())
+                if L.email:
+                    seen_emails.add(L.email.strip().lower())
+
+            for cand in candidates:
+                if len(inserted) >= max_candidates:
+                    break
+                name = str(
+                    cand.get("name") or cand.get("org") or cand.get("organization") or ""
+                ).strip()
+                if not name:
+                    continue
+                email = str(cand.get("contact_email") or "").strip()
+                if name.lower() in seen_companies or (
+                    email and email.lower() in seen_emails
+                ):
+                    continue
+                seen_companies.add(name.lower())
+                if email:
+                    seen_emails.add(email.lower())
+
+                note_parts: list[str] = []
+                if cand.get("why_relevant"):
+                    note_parts.append(str(cand["why_relevant"]).strip())
+                meta = [
+                    f"{label}: {cand[key]}"
+                    for key, label in (
+                        ("org_type", "Type"),
+                        ("location", "Location"),
+                        ("website", "Website"),
+                        ("source_url", "Source"),
+                    )
+                    if cand.get(key)
+                ]
+                if meta:
+                    note_parts.append("\n".join(meta))
+
+                lead = Lead(
+                    user_id=ctx.user_id,
+                    name="",
+                    company=name[:255],
+                    role="",
+                    email=email[:512],
+                    phone="",
+                    vertical=vertical,
+                    source=LeadSource.research,
+                    status=LeadStatus.researched,
+                    notes="\n\n".join(note_parts)[:9000],
+                )
+                lead.score = self.score_lead(lead)
+                session.add(lead)
+                inserted.append(lead)
+
+            await session.commit()
+            for lead in inserted:
+                await session.refresh(lead)
+        return inserted

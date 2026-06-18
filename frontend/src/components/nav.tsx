@@ -10,7 +10,9 @@ const ITEMS: { href: string; label: string }[] = [
   { href: "/tasks", label: "Tasks" },
   { href: "/approvals", label: "Approvals" },
   { href: "/projects", label: "Projects" },
+  { href: "/leads", label: "Leads" },
   { href: "/grants", label: "Grants" },
+  { href: "/marketing", label: "Marketing" },
   { href: "/agents", label: "Agents" },
   { href: "/settings", label: "Settings" },
 ];
