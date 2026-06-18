@@ -37,6 +37,15 @@ class Settings(BaseSettings):
 
     default_permission: str = "ask_before_action"
 
+    # Comma-separated CORS allow-list for the Next.js dev server. Localhost-only
+    # (covers dev ports 3000-3003); set JARVIS_CORS_ORIGINS to override.
+    cors_origins: str = (
+        "http://localhost:3000,http://127.0.0.1:3000,"
+        "http://localhost:3001,http://127.0.0.1:3001,"
+        "http://localhost:3002,http://127.0.0.1:3002,"
+        "http://localhost:3003,http://127.0.0.1:3003"
+    )
+
     database_url: str = Field(
         default="postgresql+psycopg://jarvis:jarvis@localhost:5432/jarvis",
         alias="DATABASE_URL",

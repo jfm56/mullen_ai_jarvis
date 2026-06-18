@@ -36,6 +36,7 @@ export function VoiceButton({ onTranscript, replyText }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [available, setAvailable] = useState<boolean | null>(null);
+  const [ttsAvailable, setTtsAvailable] = useState(false);
   const [availabilityNotes, setAvailabilityNotes] = useState<string>("");
   const lastSpoken = useRef<string | null>(null);
 
@@ -46,6 +47,7 @@ export function VoiceButton({ onTranscript, replyText }: Props) {
       .then((s) => {
         if (cancelled) return;
         setAvailable(s.stt_available);
+        setTtsAvailable(s.tts_available);
         setAvailabilityNotes(s.notes);
       })
       .catch(() => {
@@ -60,7 +62,9 @@ export function VoiceButton({ onTranscript, replyText }: Props) {
 
   // Speak the reply when the parent gives us one.
   useEffect(() => {
-    if (!replyText || replyText === lastSpoken.current) return;
+    // Only attempt TTS when the backend reports a usable voice — otherwise
+    // every reply fires a guaranteed-400 /voice/speak request.
+    if (!replyText || !ttsAvailable || replyText === lastSpoken.current) return;
     lastSpoken.current = replyText;
     speak(replyText)
       .then(playAudioBlob)
@@ -69,7 +73,7 @@ export function VoiceButton({ onTranscript, replyText }: Props) {
         // eslint-disable-next-line no-console
         console.warn("tts failed:", err);
       });
-  }, [replyText]);
+  }, [replyText, ttsAvailable]);
 
   const startRecording = useCallback(async () => {
     if (recording || busy) return;

@@ -57,13 +57,10 @@ def create_app() -> FastAPI:
     slow_ms = int(os.environ.get("JARVIS_SLOW_REQUEST_MS", "1000"))
     app.add_middleware(TimingMiddleware, slow_threshold_ms=slow_ms)
 
-    # CORS for the Next.js dev server. Default to localhost-only to match the
-    # local-first architecture (docs/ARCHITECTURE.md).
+    # CORS for the Next.js dev server. Localhost-only to match the local-first
+    # architecture (docs/ARCHITECTURE.md); configurable via JARVIS_CORS_ORIGINS.
     cors_origins = [
-        o.strip() for o in os.environ.get(
-            "JARVIS_CORS_ORIGINS",
-            "http://localhost:3000,http://127.0.0.1:3000",
-        ).split(",") if o.strip()
+        o.strip() for o in settings.cors_origins.split(",") if o.strip()
     ]
     app.add_middleware(
         CORSMiddleware,

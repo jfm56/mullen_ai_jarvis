@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 
 import { ApiError, api } from "@/lib/api";
 import { useRequireAuth } from "@/lib/auth";
@@ -43,6 +43,17 @@ export default function AgentsPage() {
   const [permission, setPermission] = useState("ask_before_action");
   const [prompt, setPrompt] = useState("");
   const [turns, setTurns] = useState<Turn[]>([]);
+
+  // Deep-link support: /agents?agent=lead_generation preselects that agent
+  // (used by the Today page's agent roster).
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("agent");
+    if (requested && AGENTS.some((a) => a.value === requested)) {
+      setAgent(requested);
+      const spec = AGENTS.find((a) => a.value === requested);
+      if (spec) setDomain(spec.defaultDomain);
+    }
+  }, []);
 
   function onAgentChange(value: string) {
     setAgent(value);
